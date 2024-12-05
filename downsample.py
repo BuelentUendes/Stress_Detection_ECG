@@ -83,7 +83,7 @@ def main(args: argparse.Namespace) -> None:
         args: Command line arguments containing desired_sampling_rate
     """
     edf_files = find_all_edf_files(RAW_DATA_PATH)
-    output_path = os.path.join(CLEANED_DATA_PATH, str(args.desired_sampling_rate))
+    output_path = os.path.join(RAW_DATA_PATH, str(args.desired_sampling_rate))
     create_directory(output_path)
 
     for edf_file in tqdm(edf_files, desc="Processing EDF files"):
