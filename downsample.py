@@ -82,7 +82,7 @@ def main(args: argparse.Namespace) -> None:
     Args:
         args: Command line arguments containing desired_sampling_rate
     """
-    edf_files = find_all_edf_files(RAW_DATA_PATH)
+    edf_files = find_all_edf_files(os.path.join(RAW_DATA_PATH, "1000"))
     output_path = os.path.join(RAW_DATA_PATH, str(args.desired_sampling_rate))
     create_directory(output_path)
 
@@ -107,3 +107,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     main(args)
+
