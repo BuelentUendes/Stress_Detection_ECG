@@ -93,7 +93,7 @@ def main(args: argparse.Namespace) -> None:
     output_path = os.path.join(RAW_DATA_PATH, str(args.desired_sampling_rate))
     create_directory(output_path)
 
-    for edf_file in tqdm(edf_files, desc="Processing EDF files"):
+    for edf_file in tqdm(edf_files, desc=f"Processing EDF files. Target frequency {args.desired_sampling_rate}"):
         save_path = os.path.join(output_path, os.path.basename(edf_file))
         downsample_ecg_file(edf_file, save_path, args.desired_sampling_rate)
 
