@@ -21,3 +21,4 @@ lazypredict==0.2.12
 optuna==3.6.1
 neurokit2
 pyedflib
+tqdm
