@@ -1,6 +1,6 @@
 import os
-from pathlib import Path
-from typing import List, Dict, Any
+
+from typing import List
 import argparse
 
 import neurokit2 as nk
@@ -8,7 +8,8 @@ import numpy as np
 from pyedflib import highlevel
 from tqdm import tqdm
 
-from utils.helper_path import RAW_DATA_PATH, CLEANED_DATA_PATH
+from utils.helper_path import RAW_DATA_PATH
+
 
 def find_all_edf_files(directory: str) -> List[str]:
     """
@@ -37,7 +38,8 @@ def create_directory(path: str) -> None:
 def downsample_ecg_file(
     input_path: str, 
     output_path: str, 
-    desired_sampling_rate: int
+    desired_sampling_rate: int,
+    method: str = "FFT",
 ) -> None:
     """
     Downsample an ECG signal from an EDF file and save it.
@@ -46,6 +48,7 @@ def downsample_ecg_file(
         input_path: Path to input EDF file
         output_path: Path where downsampled EDF file should be saved
         desired_sampling_rate: Target sampling rate in Hz
+        method: downsampling method, default: FFT, could also be 'interpolated'
         
     Notes:
         - Assumes ECG signal is the first channel in the EDF file
@@ -55,16 +58,19 @@ def downsample_ecg_file(
     signals, signal_headers, header = highlevel.read_edf(input_path)
     
     # Clean and downsample the ECG signal
-    ecg_signal = nk.signal_sanitize(signals[0])
-    ecg_signal = np.nan_to_num(ecg_signal)
-    cleaned_signal = nk.ecg_clean(ecg_signal, sampling_rate=1000)
-    cleaned_signal = np.nan_to_num(cleaned_signal)
+    # Now I need to design a lowpass filter to cut all frequencies above,
+    # so they do not creep into my downsampled signal
+
+    nyquist_frequency = float(desired_sampling_rate / 2)
+    cleaned_signal = nk.signal_filter(signals[0], sampling_rate=1000, highcut=nyquist_frequency, order=2)
+
     downsampled_ecg = nk.signal_resample(
-        cleaned_signal, 
+        cleaned_signal,
         sampling_rate=1000,
-        desired_sampling_rate=desired_sampling_rate
+        desired_sampling_rate=desired_sampling_rate,
+        method=method
     )
-    downsampled_ecg = np.nan_to_num(downsampled_ecg)
+    downsampled_ecg = np.nan_to_num(downsampled_ecg).reshape(1, -1)
 
     # Update header for the new sampling rate
     new_header = signal_headers[0].copy()
@@ -72,7 +78,7 @@ def downsample_ecg_file(
     new_header["sample_frequency"] = desired_sampling_rate
 
     # Write the downsampled EDF file
-    highlevel.write_edf(output_path, np.array([downsampled_ecg]), [new_header], header)
+    highlevel.write_edf(output_path, downsampled_ecg, [new_header], header)
 
 
 def main(args: argparse.Namespace) -> None:
