@@ -23,7 +23,7 @@ def main(args):
     Preprocessing() \
         .data(
             read_edf(
-                os.path.join(input_path, '30100_LAB_Conditions_ECG.edf'),
+                os.path.join(input_path, '*.edf'),
                 Metadata(meta_path).on_regex(r'[0-9]{5}'),
                 sampling_rate=args.sample_frequency,
             )
