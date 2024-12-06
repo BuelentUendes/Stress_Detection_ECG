@@ -10,17 +10,7 @@ from sia.encoders import GroupEncoder
 from sklearn.preprocessing import LabelEncoder
 
 from utils.helper_path import RAW_DATA_PATH, CLEANED_DATA_PATH
-
-
-def create_directory(path: str) -> None:
-    """
-    Create a directory if it doesn't exist.
-
-    Args:
-        path: Path to create
-    """
-    if not os.path.exists(path):
-        os.makedirs(path)
+from utils.helper_functions import create_directory
 
 
 def main(args):
