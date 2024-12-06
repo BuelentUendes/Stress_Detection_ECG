@@ -36,8 +36,8 @@ def create_directory(path: str) -> None:
 
 
 def downsample_ecg_file(
-    input_path: str, 
-    output_path: str, 
+    input_path: str,
+    output_path: str,
     desired_sampling_rate: int,
     method: str = "FFT",
 ) -> None:
@@ -59,8 +59,9 @@ def downsample_ecg_file(
     
     # Clean and downsample the ECG signal
     # Now I need to design a lowpass filter to cut all frequencies above,
-    # so they do not creep into my downsampled signal
+    # so they do not creep into my downsampled signal (anti-aliasing!)
 
+    # The nyquist frequency is important
     nyquist_frequency = float(desired_sampling_rate / 2)
     cleaned_signal = nk.signal_filter(signals[0], sampling_rate=1000, highcut=nyquist_frequency, order=2)
 
@@ -108,7 +109,7 @@ if __name__ == "__main__":
         "--desired_sampling_rate",
         type=int,
         help="Desired sampling rate for downsampling in Hz.",
-        default=100
+        default=128
     )
 
     args = parser.parse_args()
