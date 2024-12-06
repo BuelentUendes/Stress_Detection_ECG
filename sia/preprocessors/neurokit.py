@@ -62,96 +62,17 @@ def preprocessing_pipeline(ecg_cleaned, sampling_rate: int = 1000, method: str =
     return signals, info
 
 
-def pantompkins(sampling_rate: int = 1000) -> Callable[[list], dict]:
-    """Compute ECG features using the Pan-Tompkins algorithm.
-
-    Parameters
-    ----------
-    sampling_rate : int, optional
-        The sampling rate of the ECG signal, by default 1000.
-    
-    Returns
-    -------
-    function
-        A function that computes the ECG features using the Pan-Tompkins algorithm.
-    """
-    def inner(signal: list[float]): 
-        warnings.filterwarnings("ignore")
-        df, _ = nk.ecg_process(signal, sampling_rate=sampling_rate, method='pantompkins1985')
-        warnings.filterwarnings("default")
-        return df.to_dict('list')
-    return inner
-
-def hamilton(sampling_rate: int = 1000) -> Callable[[list], dict]:
-    """Compute ECG features using the Hamilton algorithm.
-
-    Parameters
-    ----------
-    sampling_rate : int, optional
-        The sampling rate of the ECG signal, by default 1000.
-
-    Returns
-    -------
-    function
-        A function that computes the ECG features using the Hamilton algorithm.
-    """
-    def inner(signal: list[float]): 
-        warnings.filterwarnings("ignore")
-        df, _ = nk.ecg_process(signal, sampling_rate=sampling_rate, method='hamilton2002')
-        warnings.filterwarnings("default")
-        return df.to_dict('list')
-    return inner
-
-def elgendi(sampling_rate: int = 1000) -> Callable[[list], dict]:
-    """Compute ECG features using the Elgendi algorithm.
-
-    Parameters
-    ----------
-    sampling_rate : int, optional
-        The sampling rate of the ECG signal, by default 1000.
-
-    Returns
-    -------
-    function
-        A function that computes the ECG features using the Elgendi algorithm.
-    """
-    def inner(signal: list[float]): 
-        warnings.filterwarnings("ignore")
-        df, _ = nk.ecg_process(signal, sampling_rate=sampling_rate, method='elgendi2010')
-        warnings.filterwarnings("default")
-        return df.to_dict('list')
-    return inner
-
-def engzeemod(sampling_rate: int = 1000) -> Callable[[list], dict]:
-    """Compute ECG features using the Engzee Modified algorithm.
-
-    Parameters
-    ----------
-    sampling_rate : int, optional
-        The sampling rate of the ECG signal, by default 1000.
-
-    Returns
-    -------
-    function
-        A function that computes the ECG features using the Engzee Modified algorithm.
-    """
-    def inner(signal: list[float]): 
-        warnings.filterwarnings("ignore")
-        df, _ = nk.ecg_process(signal, sampling_rate=sampling_rate, method='engzeemod2012')
-        warnings.filterwarnings("default")
-        return df.to_dict('list')
-    return inner
-
-def neurokit(sampling_rate: int = 1000, clean_before_processing: bool = True) -> Callable[[list], dict]:
+def neurokit(sampling_rate: int = 1000,
+             method: str = "neurokit") -> Callable[[list], dict]:
     """Compute ECG features using the NeuroKit algorithm.
 
     Parameters
     ----------
     sampling_rate : int, optional
         The sampling rate of the ECG signal, by default 1000.
-    clean_before_processing : bool, optional
-        If the signal needs to get cleaned before processing.
-        In our dataset, the original sample frequency is at 1000 Hz which is not yet cleaned.
+    method: str, optional
+        Which method to use for cleaning and preprocessing the ECG signal.
+        Choices: 'neurokit', 'engzeemod2012', 'elgendi2010', 'hamilton2002', 'pantompkins1985'
 
     Returns
     -------
@@ -160,15 +81,7 @@ def neurokit(sampling_rate: int = 1000, clean_before_processing: bool = True) ->
     """
     def inner(signal: list[float]): 
         warnings.filterwarnings("ignore")
-        if clean_before_processing:
-            df, _ = nk.ecg_process(signal, sampling_rate=sampling_rate, method='neurokit')
-        else:
-            df, _ = preprocessing_pipeline(
-                signal,
-                sampling_rate=sampling_rate,
-                method="neurokit"
-            )
-
+        df, _ = nk.ecg_process(signal, sampling_rate=sampling_rate, method=method)
         warnings.filterwarnings("default")
         return df.to_dict('list')
     return inner
