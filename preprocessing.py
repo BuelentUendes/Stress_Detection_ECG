@@ -2,7 +2,7 @@
 
 import os
 from sia import Preprocessing
-from sia.io import Metadata, read_edf, read_csv, write_csv
+from sia.io import Metadata, read_edf, write_csv
 from sia.preprocessors import neurokit
 import argparse
 
@@ -30,10 +30,6 @@ def main(args):
     meta_path = os.path.join(RAW_DATA_PATH, "TimeStamps_Merged.txt")
     create_directory(output_path)
 
-    # Get some safeguard
-    if args.sample_frequency == 1000 and not args.clean_before_processing:
-        print("WARNING: The original dataset of 1000HZ is not cleaned! So it is advisable to set the flag!")
-
     Preprocessing() \
         .data(
             read_edf(
@@ -52,7 +48,7 @@ def main(args):
             'low_physical_activity': ['Standing', 'Recov_standing', 'Lying_supine']     # Updated low physical activity
         })) \
         .filter(lambda category: [_category != None for _category in category]) \
-        .process(neurokit(sampling_rate=args.sample_frequency, clean_before_processing=True)) \
+        .process(neurokit(sampling_rate=args.sample_frequency, method=args.method)) \
         .filter(lambda label: [_label != "Lying_supine" for _label in label]) \
         .filter(lambda ECG_Quality: [quality > .25 for quality in ECG_Quality]) \
         .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv')))
@@ -64,12 +60,13 @@ if __name__ == "__main__":
                         help="Which sample frequency to use. Original is 1,000 Hz."
                              "Note: We can have other sample frequencies, "
                              "but then one needs to use the downsample script first",
-                        default=1000)
-    parser.add_argument("--clean_before_processing", action="store_true",
-                        help="If we should clean the signal before processing. NOTE: 1000HZ needs to be cleaned!")
+                        default=128)
+    parser.add_argument("--method", type=str, help="which method to choose for preprocessing"
+                                                   "Choices: 'neurokit', 'engzeemod2012', 'elgendi2010', "
+                                                   "'hamilton2002', 'pantompkins1985'",
+                        default="neurokit")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     main(args)
-
 
