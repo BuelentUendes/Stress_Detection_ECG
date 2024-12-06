@@ -31,7 +31,7 @@ def main(args):
     create_directory(output_path)
 
     Segmenter() \
-        .data(read_csv(os.path.join(input_path, '30100.csv'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
+        .data(read_csv(os.path.join(input_path, '*.csv'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
         .segment(SlidingWindow(WINDOW_SIZE, STEP_SIZE)) \
             .skip(lambda category: len(Counter(category)) > 1) \
             .extract('category', lambda category: Counter(category).most_common(1)[0][0]) \
