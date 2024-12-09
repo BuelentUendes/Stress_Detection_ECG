@@ -31,7 +31,7 @@ def main(args):
     create_directory(output_path)
 
     Segmenter() \
-        .data(read_csv(os.path.join(input_path, '*.csv'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
+        .data(read_csv(os.path.join(input_path, '30100.csv'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
         .segment(SlidingWindow(WINDOW_SIZE, STEP_SIZE)) \
             .skip(lambda category: len(Counter(category)) > 1) \
             .extract('category', lambda category: Counter(category).most_common(1)[0][0]) \
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline for extracting features of the cleaned ECG data")
     parser.add_argument("--sample_frequency", type=int, default=128, help="Sampling rate used for the dataset")
     parser.add_argument("--window_size", type=int, default=60, help="How many seconds we consider")
-    parser.add_argument("--window_overlap", type=float, default=0.25,
+    parser.add_argument("--window_overlap", type=float, default=15,
                         help="How much shift in seconds between consecutive windows.")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
