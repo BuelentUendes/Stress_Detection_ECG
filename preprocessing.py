@@ -20,7 +20,7 @@ def main(args):
     meta_path = os.path.join(RAW_DATA_PATH, "TimeStamps_Merged.txt")
     create_directory(output_path)
 
-    Preprocessing() \
+    Preprocessing(num_proc=args.number_processors) \
         .data(
             read_edf(
                 os.path.join(input_path, '*.edf'),
@@ -55,8 +55,13 @@ if __name__ == "__main__":
                                                    "Choices: 'neurokit', 'engzeemod2012', 'elgendi2010', "
                                                    "'hamilton2002', 'pantompkins1985'",
                         default="neurokit")
+    parser.add_argument("--number_processors", type=int, default=1, help="If set to -1, it uses all available")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
+
+    if args.number_processors == -1:
+        # Get all available processors
+        args.number_processors = os.cpu_count()
 
     main(args)
 
