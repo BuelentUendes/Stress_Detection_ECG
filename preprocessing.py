@@ -15,7 +15,19 @@ from utils.helper_functions import create_directory
 
 def main(args):
 
-    input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency))
+    if args.data_chunk == -1:
+        input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency))
+    elif args.data_chunk == 1:
+        input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_1")
+    elif args.data_chunk == 2:
+        input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_2")
+    elif args.data_chunk == 3:
+        input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_3")
+    elif args.data_chunk == 4:
+        input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_4")
+    elif args.data_chunk == 5:
+        input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_5")
+
     output_path = os.path.join(CLEANED_DATA_PATH, str(args.sample_frequency))
     meta_path = os.path.join(RAW_DATA_PATH, "TimeStamps_Merged.txt")
     create_directory(output_path)
@@ -57,6 +69,9 @@ if __name__ == "__main__":
                         default="neurokit")
     parser.add_argument("--number_processors", type=int, default=1, help="If set to -1, it uses all available")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--data_chunk", type=int, default=1,
+                        help="Which data chunk to process. 1 for part 1, 2 for part 2, and -1 for all."
+                             "Important: -1 will most likely lead to memory issues.")
     args = parser.parse_args()
 
     if args.number_processors == -1:
