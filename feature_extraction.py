@@ -23,7 +23,7 @@ from utils.helper_functions import create_directory
 
 def main(args):
 
-    WINDOW_SIZE = int(args.window_size * args.sample_frequency)  # how many time points we have effectively
+    WINDOW_SIZE = args.window_size * args.sample_frequency  # how many time points we have effectively
     STEP_SIZE = int(args.window_overlap * args.sample_frequency)  # time points (units) which we shift
 
     input_path = os.path.join(CLEANED_DATA_PATH, str(args.sample_frequency))
@@ -48,9 +48,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline for extracting features of the cleaned ECG data")
-    parser.add_argument("--sample_frequency", type=int, default=128, help="Sampling rate used for the dataset")
+    parser.add_argument("--sample_frequency", type=int, default=1000, help="Sampling rate used for the dataset")
     parser.add_argument("--window_size", type=int, default=60, help="How many seconds we consider")
-    parser.add_argument("--window_overlap", type=float, default=15,
+    parser.add_argument("--window_overlap", type=float, default=0.25,
                         help="How much shift in seconds between consecutive windows.")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
