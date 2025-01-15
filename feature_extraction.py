@@ -38,10 +38,21 @@ def main(args):
             .use('rpeaks', lambda ECG_R_Peaks: extract_peaks(ECG_R_Peaks)) \
             .extract(hr([Statistic.MIN, Statistic.MAX, Statistic.MEAN, Statistic.STD])) \
             .extract(hrv([Statistic.MEAN, Statistic.STD, Statistic.RMS])) \
-            .extract(time_domain([TimeFeature.CVNN, TimeFeature.CVSD, TimeFeature.NN20, TimeFeature.PNN20, TimeFeature.NN50, TimeFeature.PNN50])) \
-            .extract(frequency_domain([FrequencyFeature.MIN, FrequencyFeature.MAX, FrequencyFeature.MEAN, FrequencyFeature.STD, FrequencyFeature.POWER, FrequencyFeature.COVARIANCE, FrequencyFeature.ENERGY, FrequencyFeature.ENTROPY])) \
-            .extract(nonlinear_domain([NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE, NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION])) \
-            .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean, sampling_rate=args.sample_frequency))) \
+            .extract(time_domain([TimeFeature.CVNN,
+                                  TimeFeature.CVSD,
+                                  TimeFeature.NN20,
+                                  TimeFeature.PNN20,
+                                  TimeFeature.NN50,
+                                  TimeFeature.PNN50])) \
+            .extract(frequency_domain([FrequencyFeature.MIN, FrequencyFeature.MAX,
+                                       FrequencyFeature.MEAN, FrequencyFeature.STD,
+                                       FrequencyFeature.POWER, FrequencyFeature.COVARIANCE,
+                                       FrequencyFeature.ENERGY, FrequencyFeature.ENTROPY])) \
+            .extract(nonlinear_domain([NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE,
+                                       NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION])) \
+            .use('tpeaks',
+                 lambda ECG_Clean:
+                 extract_peaks(delineate(Waves.T_Peak)(ECG_Clean))) \
             .extract(morphology_domain([MorphologyFeature.TWA])) \
         .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv')))
 
