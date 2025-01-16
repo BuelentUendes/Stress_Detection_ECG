@@ -46,5 +46,5 @@ def delineate(features: Union[Waves, list[Waves]]):
         A function that computes the ECG delineation features.
     """
     def inner(ECG_Clean: list[float]):
-        return nk.ecg_delineate(ECG_Clean, method="peaks")[0][features]
+        return nk.ecg_delineate(ECG_Clean, method="dwt")[0][features]
     return inner
