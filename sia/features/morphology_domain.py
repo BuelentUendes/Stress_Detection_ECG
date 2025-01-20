@@ -54,7 +54,30 @@ def calculate_twa(signal: list[float], tpeaks: list[int]):
     dict
         A dictionary containing the TWA feature.
     """
-    signal = np.array(signal)   
+    # Check if signal is empty
+    if signal is None or len(signal) == 0:
+        return np.nan
+
+    # Convert to numpy array and check if conversion was successful
+    try:
+        signal = np.array(signal)
+        if signal.size == 0:
+            warn("Empty signal array", RuntimeWarning)
+            return np.nan
+
+    except Exception as e:
+        warn(f"Failed to convert signal to numpy array: {str(e)}", RuntimeWarning)
+        return np.nan
+
+    if len(tpeaks) < 2:
+        warn("Insufficient T-peaks to calculate TWA (minimum 2 required)", RuntimeWarning)
+        return np.nan
+
+    # Ensure T-peaks are within signal bounds
+    valid_tpeaks = [t for t in tpeaks if 0 <= t < len(signal)]
+    if len(valid_tpeaks) < 2:
+        warn("No valid T-peaks within signal bounds", RuntimeWarning)
+        return np.nan
 
     # Divide the T-peaks into two buckets, even and odd.
     even_bucket = tpeaks[1::2]
