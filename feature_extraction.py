@@ -30,38 +30,53 @@ def main(args):
     output_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency))
     create_directory(output_path)
 
-    Segmenter() \
-        .data(read_csv(os.path.join(input_path, '30100.csv'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
-        .segment(SlidingWindow(WINDOW_SIZE, STEP_SIZE)) \
-            .skip(lambda category: len(Counter(category)) > 1) \
+    if args.window_size >= 60:
+        # The non-linear features need enough of a time-window to extract features which is kinda weird,
+        #ToDo: Check this!
+        # ULF and VLF also are only detectable with 24h of ECG data
+        # source: file:///Users/test/Downloads/sensors-21-05015-v2.pdf
+        # Check: Window segmentation how much overlap, how small should the window be?
+        Segmenter() \
+            .data(read_csv(os.path.join(input_path, '30100.csv'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
+            .segment(SlidingWindow(WINDOW_SIZE, STEP_SIZE)) \
+                .skip(lambda category: len(set(category)) > 1) \
+                .extract('category', lambda category: Counter(category).most_common(1)[0][0]) \
+                .use('rpeaks', lambda ECG_R_Peaks: extract_peaks(ECG_R_Peaks)) \
+                .extract(hr([Statistic.MIN, Statistic.MAX, Statistic.MEAN, Statistic.STD])) \
+                .extract(hrv([Statistic.MEAN, Statistic.STD, Statistic.RMS])) \
+                .extract(time_domain([TimeFeature.CVNN, TimeFeature.CVSD, TimeFeature.NN20, TimeFeature.PNN20, TimeFeature.NN50, TimeFeature.PNN50])) \
+                .extract(frequency_domain([FrequencyFeature.MIN, FrequencyFeature.MAX, FrequencyFeature.MEAN, FrequencyFeature.STD,FrequencyFeature.POWER, FrequencyFeature.COVARIANCE, FrequencyFeature.ENERGY, FrequencyFeature.ENTROPY])) \
+                .extract(nonlinear_domain([NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE, NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION])) \
+                .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean))) \
+                .extract(morphology_domain([MorphologyFeature.TWA])) \
+            .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv')))
+
+    else:
+        # Fallback to calculate the features withoutout the non-linear domain
+        Segmenter() \
+            .data(read_csv(os.path.join(input_path, '30100.csv'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
+            .segment(SlidingWindow(WINDOW_SIZE, STEP_SIZE)) \
+            .skip(lambda category: len(set(category)) > 1) \
             .extract('category', lambda category: Counter(category).most_common(1)[0][0]) \
             .use('rpeaks', lambda ECG_R_Peaks: extract_peaks(ECG_R_Peaks)) \
             .extract(hr([Statistic.MIN, Statistic.MAX, Statistic.MEAN, Statistic.STD])) \
             .extract(hrv([Statistic.MEAN, Statistic.STD, Statistic.RMS])) \
-            .extract(time_domain([TimeFeature.CVNN,
-                                  TimeFeature.CVSD,
-                                  TimeFeature.NN20,
-                                  TimeFeature.PNN20,
-                                  TimeFeature.NN50,
-                                  TimeFeature.PNN50])) \
-            .extract(frequency_domain([FrequencyFeature.MIN, FrequencyFeature.MAX,
-                                       FrequencyFeature.MEAN, FrequencyFeature.STD,
-                                       FrequencyFeature.POWER, FrequencyFeature.COVARIANCE,
-                                       FrequencyFeature.ENERGY, FrequencyFeature.ENTROPY])) \
-            .extract(nonlinear_domain([NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE,
-                                       NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION])) \
-            .use('tpeaks',
-                 lambda ECG_Clean:
-                 extract_peaks(delineate(Waves.T_Peak)(ECG_Clean))) \
+            .extract(time_domain(
+            [TimeFeature.CVNN, TimeFeature.CVSD, TimeFeature.NN20, TimeFeature.PNN20, TimeFeature.NN50,
+             TimeFeature.PNN50])) \
+            .extract(frequency_domain(
+            [FrequencyFeature.MIN, FrequencyFeature.MAX, FrequencyFeature.MEAN, FrequencyFeature.STD,
+             FrequencyFeature.POWER, FrequencyFeature.COVARIANCE, FrequencyFeature.ENERGY, FrequencyFeature.ENTROPY])) \
+            .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean))) \
             .extract(morphology_domain([MorphologyFeature.TWA])) \
-        .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv')))
+            .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv')))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline for extracting features of the cleaned ECG data")
     parser.add_argument("--sample_frequency", type=int, default=1000, help="Sampling rate used for the dataset")
     parser.add_argument("--window_size", type=int, default=60, help="How many seconds we consider")
-    parser.add_argument("--window_overlap", type=float, default=0.25,
+    parser.add_argument("--window_overlap", type=float, default=30,
                         help="How much shift in seconds between consecutive windows.")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
