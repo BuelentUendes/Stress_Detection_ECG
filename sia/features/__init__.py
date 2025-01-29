@@ -29,6 +29,31 @@ def extract_peaks(peaks: list[int]) -> list[int]:
     """
     return np.nonzero(peaks)[0]
 
+
+def extract_hr_from_peaks(peaks: list[int], sample_frequency: int = 1000) -> list[int]:
+    """Extract the heart_rate from the list of peaks, where peaks are non-zero values.
+
+    Parameters
+    ----------
+    peaks : list[int]
+        The list of peaks.
+
+    sample_frequency: int
+        The sample frequency of the heart rate
+
+    Returns
+    -------
+    np.ndarray
+        An array with the calculated heart rate
+    """
+    rpeaks = np.nonzero(peaks)[0]
+    rri = np.diff(rpeaks) * (1 / sample_frequency)
+    hr = 60 / rri  # HR = 60/RR interval in seconds
+    print(f"The min heart rate is {min(hr)}")
+
+    return hr
+
+
 class Waves(str, Enum):
     T_Peak = "ECG_T_Peaks"
 
@@ -46,5 +71,6 @@ def delineate(features: Union[Waves, list[Waves]]):
         A function that computes the ECG delineation features.
     """
     def inner(ECG_Clean: list[float]):
-        return nk.ecg_delineate(ECG_Clean, method="dwt")[0][features]
+        _, r_peaks = nk.ecg_peaks(ECG_Clean)
+        return nk.ecg_delineate(ECG_Clean, r_peaks, method="dwt")[0][features]
     return inner
