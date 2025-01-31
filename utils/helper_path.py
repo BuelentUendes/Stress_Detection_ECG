@@ -9,4 +9,6 @@ DATA_PATH = abspath(os.path.join(BASE_PATH, './', "data"))
 CLEANED_DATA_PATH = abspath(os.path.join(DATA_PATH, "cleaned"))
 FEATURE_DATA_PATH = abspath(os.path.join(DATA_PATH, "features"))
 RAW_DATA_PATH = abspath(os.path.join(DATA_PATH, "raw", "Raw ECG project"))
-
+MODELS_PATH = abspath(os.path.join(BASE_PATH, './', "models"))
+CONFIG_PATH = abspath(os.path.join(BASE_PATH, './', "configs"))
+RESULTS_PATH = abspath(os.path.join(BASE_PATH, './', "results"))
