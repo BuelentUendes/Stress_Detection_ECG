@@ -136,7 +136,8 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
 
     # Split data into x_data and y_data
     x = data.drop(columns=["category"])
-    y = data["category"]
+    # The target label needs to be an integer
+    y = data["category"].astype(int)
 
     return x, y
 
