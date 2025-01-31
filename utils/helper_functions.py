@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
 def create_directory(path: str) -> None:
@@ -138,20 +138,38 @@ class ECGDataset:
         return self.train_data, self.val_data, self.test_data
 
 
+#Todo: Extend to multiclass classification
 def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> pd.DataFrame:
-
-    category_list = list(set(data["category"].values))
-    assert positive_class in category_list, f"positive class needs to be one in {category_list}"
-    assert negative_class in category_list, f"negative class needs to be one in {category_list}"
-
     # First drop data that is not either in the positive class or negative class
     data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
     # Then label the data 1 for positive and 0 for negative
-    data['category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
+    data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
+
+    #ToDo: We should handle missing data here before we split as we drop the idx!
+
+    # Split data into x_data and y_data
+    x = data.drop(columns=["category"])
+    y = data["category"]
+
+    return x, y
+
+
+def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
+    # Drop rows with infinite values and NaN values
+    original_data_len = len(data)
+    data = data[~data.isin([np.inf, -np.inf]).any(axis=1)]  # Drop rows with infinite values
+    data = data.dropna()  # More efficient way to drop rows with NaN values
+
+    # Assert statements to check if it worked
+    assert not data.isin([np.inf, -np.inf]).any().any(), "infinity data is still detected"  # Check for infinite values
+    assert not data.isna().any().any(), "np.nan data is still detected"  # Check for NaN values
+
+    dropped_percent = ((original_data_len - len(data)) / original_data_len) * 100
+    print(f"We dropped {np.round(dropped_percent, 4)} percent of the original data")
+
     return data
 
 
-# Function to prepare data for scikit-learn
 def prepare_data(train_data: pd.DataFrame,
                  val_data: pd.DataFrame,
                  test_data: pd.DataFrame,
@@ -169,9 +187,27 @@ def prepare_data(train_data: pd.DataFrame,
     :return: Tuple of (X_train, y_train, X_val, y_val, X_test, y_test)
     """
 
+    # We first handle missing data
+    train_data = handle_missing_data(train_data)
+    val_data = handle_missing_data(val_data)
+    test_data = handle_missing_data(test_data)
 
+    # Get the columns
+    x_train, y_train = encode_data(train_data, positive_class, negative_class)
+    x_val, y_val = encode_data(val_data, positive_class, negative_class)
+    x_test, y_test = encode_data(test_data, positive_class, negative_class)
 
+    feature_names = list(x_train.columns.values)
 
+    if scaler is not None:
+        assert scaler.lower() in ["min_max", "standard_scaler"], \
+            "please set a valid scaler. Options: 'min_max', 'standard_scaler'"
+        scaler = StandardScaler() if scaler.lower() == "standard_scaler" else MinMaxScaler()
+        x_train = scaler.fit_transform(x_train)  # Fit and transform on training data
+        x_val = scaler.transform(x_val)  # Transform validation data
+        x_test = scaler.transform(x_test)  # Transform test data
+
+    return (x_train, y_train), (x_val, y_val), (x_test, y_test), feature_names
 
 
 def normalize_data(train_data: pd.DataFrame) -> tuple:
@@ -186,29 +222,24 @@ def normalize_data(train_data: pd.DataFrame) -> tuple:
     return normalized_train_data, scaler
 
 
-# Function to prepare data for scikit-learn
-def prepare_data(train_data: pd.DataFrame, val_data: pd.DataFrame, test_data: pd.DataFrame, scaler: StandardScaler) -> tuple:
-    """
-    Prepares the data for scikit-learn models.
-    :param train_data: DataFrame containing the training data
-    :param val_data: DataFrame containing the validation data
-    :param test_data: DataFrame containing the test data
-    :param scaler: StandardScaler instance for normalization
-    :return: Tuple of (X_train, y_train, X_val, y_val, X_test, y_test)
-    """
-    X_train = scaler.transform(train_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
-    y_train = train_data['target']  # Replace 'target' with your actual target column name
-    X_val = scaler.transform(val_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
-    y_val = val_data['target']  # Replace 'target' with your actual target column name
-    X_test = scaler.transform(test_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
-    y_test = test_data['target']  # Replace 'target' with your actual target column name
-
-    return X_train, y_train, X_val, y_val, X_test, y_test
-
-
-
-
-
+# # Function to prepare data for scikit-learn
+# def prepare_data(train_data: pd.DataFrame, val_data: pd.DataFrame, test_data: pd.DataFrame, scaler: StandardScaler) -> tuple:
+#     """
+#     Prepares the data for scikit-learn models.
+#     :param train_data: DataFrame containing the training data
+#     :param val_data: DataFrame containing the validation data
+#     :param test_data: DataFrame containing the test data
+#     :param scaler: StandardScaler instance for normalization
+#     :return: Tuple of (X_train, y_train, X_val, y_val, X_test, y_test)
+#     """
+#     X_train = scaler.transform(train_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
+#     y_train = train_data['target']  # Replace 'target' with your actual target column name
+#     X_val = scaler.transform(val_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
+#     y_val = val_data['target']  # Replace 'target' with your actual target column name
+#     X_test = scaler.transform(test_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
+#     y_test = test_data['target']  # Replace 'target' with your actual target column name
+#
+#     return X_train, y_train, X_val, y_val, X_test, y_test
 
 # Training pipeline for scikit-learn models
 def train_sklearn_model(model, X_train, y_train, X_val, y_val):
