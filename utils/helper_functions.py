@@ -2,6 +2,7 @@
 
 import os
 import random
+from enum import Enum
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -9,6 +10,13 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
 
 
 def create_directory(path: str) -> None:
@@ -94,25 +102,6 @@ class ECGDataset:
         combined_df = pd.concat(dataframes, ignore_index=True)  # Concatenate all DataFrames
         return combined_df  # Return the combined DataFrame
 
-    # def __len__(self) -> int:
-    #     """
-    #     Returns the total number of samples in the dataset.
-    #     :return: Number of samples
-    #     """
-    #     self.data = self._load_data()  # Load data if not already loaded
-    #     return len(self.data)  # Return the number of rows in the DataFrame
-    #
-    # def __getitem__(self, index: int) -> pd.Series:
-    #     """
-    #     Retrieves a sample from the dataset.
-    #     :param index: Index of the sample to retrieve
-    #     :return: A single sample as a pandas Series
-    #     """
-    #     if not hasattr(self, 'data'):
-    #         self.data = self._load_data()  # Load data if not already loaded
-    #
-    #     return self.data.iloc[index]  # Return the sample at the specified index
-
     def _split_data(self) -> tuple:
         """
         Splits the dataset into train, validation, and test sets based on participant CSV files.
@@ -144,8 +133,6 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
     data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
     # Then label the data 1 for positive and 0 for negative
     data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
-
-    #ToDo: We should handle missing data here before we split as we drop the idx!
 
     # Split data into x_data and y_data
     x = data.drop(columns=["category"])
@@ -222,37 +209,59 @@ def normalize_data(train_data: pd.DataFrame) -> tuple:
     return normalized_train_data, scaler
 
 
-# # Function to prepare data for scikit-learn
-# def prepare_data(train_data: pd.DataFrame, val_data: pd.DataFrame, test_data: pd.DataFrame, scaler: StandardScaler) -> tuple:
-#     """
-#     Prepares the data for scikit-learn models.
-#     :param train_data: DataFrame containing the training data
-#     :param val_data: DataFrame containing the validation data
-#     :param test_data: DataFrame containing the test data
-#     :param scaler: StandardScaler instance for normalization
-#     :return: Tuple of (X_train, y_train, X_val, y_val, X_test, y_test)
-#     """
-#     X_train = scaler.transform(train_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
-#     y_train = train_data['target']  # Replace 'target' with your actual target column name
-#     X_val = scaler.transform(val_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
-#     y_val = val_data['target']  # Replace 'target' with your actual target column name
-#     X_test = scaler.transform(test_data.drop(columns=['target']))  # Replace 'target' with your actual target column name
-#     y_test = test_data['target']  # Replace 'target' with your actual target column name
-#
-#     return X_train, y_train, X_val, y_val, X_test, y_test
+def get_ml_model(model: str, params: dict = None):
+    """
+    Returns the machine learning model initialized with the specified configuration settings.
 
-# Training pipeline for scikit-learn models
-def train_sklearn_model(model, X_train, y_train, X_val, y_val):
+    Args:
+        model (str): The name of the machine learning model to initialize. 
+                     Options include 'DT', 'RF', 'AdaBoost', 'LDA', 'KNN', 'LR', 'XGBoost', 'QDA'.
+        params (dict, optional): A dictionary of parameters to initialize the model. 
+                                 If None, default parameters will be used.
+
+    Raises:
+        ValueError: If the specified model name is invalid.
+
+    Returns:
+        object: An instance of the specified machine learning model initialized with the given parameters.
     """
-    Trains a scikit-learn model using the provided training and validation data.
-    :param model: The scikit-learn model to train
-    :param X_train: Features for the training set
-    :param y_train: Target for the training set
-    :param X_val: Features for the validation set
-    :param y_val: Target for the validation set
-    """
-    model.fit(X_train, y_train)  # Fit the model on the training data
-    val_score = model.score(X_val, y_val)  # Evaluate on the validation set
-    print(f'Validation Score: {val_score}')
+    # Default parameters for each model
+    default_params = {
+        "DT": {"random_state": 42},
+        "RF": {"random_state": 42, "bootstrap": False},
+        "AdaBoost": {"base_estimator": DecisionTreeClassifier(criterion='entropy', min_samples_split=20)},
+        "LDA": {},
+        "KNN": {},
+        "LR": {},
+        "XGBoost": {},
+        "QDA": {}
+    }
+
+    # Map model names to their corresponding classes
+    model_classes = {
+        "DT": DecisionTreeClassifier,
+        "RF": RandomForestClassifier,
+        "AdaBoost": AdaBoostClassifier,
+        "LDA": LinearDiscriminantAnalysis,
+        "KNN": KNeighborsClassifier,
+        "LR": LogisticRegression,
+        "XGBoost": XGBClassifier,
+        "QDA": QuadraticDiscriminantAnalysis
+    }
+
+    if model not in model_classes:
+        raise ValueError('Invalid model')
+
+    # Use default parameters if none are provided
+    if params is None:
+        params = default_params[model]
+
+    cls = model_classes[model](**params)  # Initialize the model with parameters
+
+    return cls
+
+
+
+
 
         
