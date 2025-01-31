@@ -33,8 +33,8 @@ class Feature(str, Enum):
 
 def frequency_domain(
         features: tuple[Feature], 
-        ulf: tuple[int, int] = (0, 0.0033),
-        vlf: tuple[int, int] = (0.0033, 0.04),
+        # ulf: tuple[int, int] = (0, 0.0033),
+        # vlf: tuple[int, int] = (0.0033, 0.04),
         lf: tuple[int, int] = (0.04, 0.15),
         hf: tuple[int, int] = (0.15, 0.4),
         vhf: tuple[int, int] = (0.4, 0.5),
@@ -71,22 +71,18 @@ def frequency_domain(
         result = {}
         warnings.filterwarnings("ignore")
         for feature in features:
-            df = hrv_frequency(rpeaks, sampling_rate=sampling_rate, statistic=feature, ulf=ulf, vlf=vlf, lf=lf, hf=hf, vhf=vhf, uhf=uhf)
+            df = hrv_frequency(rpeaks, sampling_rate=sampling_rate, statistic=feature, lf=lf, hf=hf, vhf=vhf, uhf=uhf)
             df = df.fillna(0.00001)
             result.update({
-                f'ulf_{feature}': df['HRV_ULF'].item(),
-                f'vlf_{feature}': df['HRV_VLF'].item(),
                 f'lf_{feature}': df['HRV_LF'].item(),
                 f'hf_{feature}': df['HRV_HF'].item(),
                 f'vhf_{feature}': df['HRV_VHF'].item(),
                 f'uhf_{feature}': df['HRV_UHF'].item(),
                 f'tp_{feature}': df['HRV_TP'].item(),
-                f'lp_ulf_{feature}': (df['HRV_ULF'].item() / df['HRV_TP'].item()) * 100,
-                f'lp_vlf_{feature}': (df['HRV_VLF'].item() / df['HRV_TP'].item()) * 100,
-                f'lp_lf_{feature}': (df['HRV_LF'].item() / df['HRV_TP'].item()) * 100,
-                f'lp_hf_{feature}': (df['HRV_HF'].item() / df['HRV_TP'].item()) * 100,
-                f'lp_vhf_{feature}': (df['HRV_VHF'].item() / df['HRV_TP'].item()) * 100,
-                f'lp_uhf_{feature}': (df['HRV_UHF'].item() / df['HRV_TP'].item()) * 100,
+                f'lp_lf_{feature}': (df['HRV_LF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
+                f'lp_hf_{feature}': (df['HRV_HF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
+                f'lp_vhf_{feature}': (df['HRV_VHF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
+                f'lp_uhf_{feature}': (df['HRV_UHF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
                 f'lf_hf_{feature}': df['HRV_LF'].item() / df['HRV_HF'].item(),
             })
         warnings.filterwarnings("default")
@@ -99,8 +95,8 @@ def frequency_domain(
 def hrv_frequency(
     peaks,
     sampling_rate=1000,
-    ulf=(0, 0.0033),
-    vlf=(0.0033, 0.04),
+    # ulf=(0, 0.0033),
+    # vlf=(0.0033, 0.04),
     lf=(0.04, 0.15),
     hf=(0.15, 0.4),
     vhf=(0.4, 0.5),
@@ -265,7 +261,7 @@ def hrv_frequency(
     else:
         t = None
 
-    frequency_band = [ulf, vlf, lf, hf, vhf, uhf]
+    frequency_band = [lf, hf, vhf, uhf]
 
     # Find maximum frequency
     max_frequency = np.max([np.max(i) for i in frequency_band])
@@ -282,7 +278,7 @@ def hrv_frequency(
         statistic=statistic
     )
 
-    power.columns = ["ULF", "VLF", "LF", "HF", "VHF", "UHF"]
+    power.columns = ["LF", "HF", "VHF", "UHF"]
 
     out = power.to_dict(orient="index")[0]
 
