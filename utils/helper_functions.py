@@ -7,6 +7,7 @@ from enum import Enum
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+from numpy.testing import assert_almost_equal
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
@@ -260,6 +261,72 @@ def get_ml_model(model: str, params: dict = None):
 
     return cls
 
+
+def get_data_balance(train_data:np.array, val_data: np.array, test_data: np.array) -> np.array:
+    """
+    Calculates the imbalance of the dataset overall
+    """
+
+    overall_data_len = len(train_data) + len(val_data) + len(test_data)
+    percentage_train = len(train_data) / overall_data_len
+    percentage_val = len(val_data) / overall_data_len
+    percentage_test = len(test_data) / overall_data_len
+
+    assert_almost_equal((percentage_train + percentage_val + percentage_test), 1.0, decimal=5)
+
+    class_1_train = np.mean(train_data)
+    class_1_val = np.mean(val_data)
+    class_1_test = np.mean(test_data)
+
+    data_balance = np.round(percentage_train * class_1_train + percentage_val * class_1_val +  percentage_test * class_1_test, 4)
+    return data_balance
+
+
+def evaluate_classifier(ml_model: BaseEstimator,
+                        train_data: tuple[np.ndarray, np.ndarray],
+                        val_data: tuple[np.ndarray, np.ndarray],
+                        test_data: tuple[np.ndarray, np.ndarray],
+                        verbose: bool = False) -> dict[str, float]:
+    """
+    Evaluates the trained machine learning model and gets the performance metrics
+    :param ml_model: scikit-learn model
+    :param train_data: tuple, with 0 being the x_data and 1 the labels
+    :param val_data: tuple, with 0 being the x_data and 1 the labels
+    :param test_data: tuple, with 0 being the x_data and 1 the labels
+    :param verbose: flag for verbose output
+    :return: dictionary with the performance metrics
+    """
+
+    def round_result(value: float) -> float:
+        return np.round(value, 4)
+
+    results = {
+        'train_accuracy': round_result(metrics.accuracy_score(train_data[1], ml_model.predict(train_data[0]))),
+        'train_balanced_accuracy': round_result(metrics.balanced_accuracy_score(train_data[1], ml_model.predict(train_data[0]))),
+        'val_accuracy': round_result(metrics.accuracy_score(val_data[1], ml_model.predict(val_data[0]))),
+        'val_balanced_accuracy': round_result(metrics.balanced_accuracy_score(val_data[1], ml_model.predict(val_data[0]))),
+        'test_accuracy': round_result(metrics.accuracy_score(test_data[1], ml_model.predict(test_data[0]))),
+        'test_balanced_accuracy': round_result(metrics.balanced_accuracy_score(test_data[1], ml_model.predict(test_data[0]))),
+    }
+
+    # Binary classification
+    if len(train_data[1].unique()) == 2:
+        results['train_f1'] = round_result(metrics.f1_score(train_data[1], ml_model.predict(train_data[0])))
+        results['val_f1'] = round_result(metrics.f1_score(val_data[1], ml_model.predict(val_data[0])))
+        results['test_f1'] = round_result(metrics.f1_score(test_data[1], ml_model.predict(test_data[0])))
+
+        # AUC
+        results['train_auc'] = round_result(metrics.roc_auc_score(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
+        results['val_auc'] = round_result(metrics.roc_auc_score(val_data[1], ml_model.predict_proba(val_data[0])[:, 1]))
+        results['test_auc'] = round_result(metrics.roc_auc_score(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
+
+    else:
+        raise NotImplementedError("We have not yet implemented multiclass classification")
+
+    if verbose:
+        print(results)
+
+    return results
 
 
 
