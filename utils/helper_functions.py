@@ -2,7 +2,7 @@
 
 import os
 import random
-from enum import Enum
+import json
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -288,6 +288,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
                         train_data: tuple[np.ndarray, np.ndarray],
                         val_data: tuple[np.ndarray, np.ndarray],
                         test_data: tuple[np.ndarray, np.ndarray],
+                        save_path: str, 
                         verbose: bool = False) -> dict[str, float]:
     """
     Evaluates the trained machine learning model and gets the performance metrics
@@ -295,6 +296,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
     :param train_data: tuple, with 0 being the x_data and 1 the labels
     :param val_data: tuple, with 0 being the x_data and 1 the labels
     :param test_data: tuple, with 0 being the x_data and 1 the labels
+    :param save_path: str, path where to save the results
     :param verbose: flag for verbose output
     :return: dictionary with the performance metrics
     """
@@ -327,6 +329,10 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
     if verbose:
         print(results)
+
+    # Save results to a JSON file
+    with open(save_path + "_performance_metrics.json", 'w') as f:
+        json.dump(results, f)  # Save results in JSON format
 
     return results
 
