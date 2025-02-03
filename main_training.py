@@ -90,7 +90,38 @@ def objective(trial: Trial,
             'subsample': trial.suggest_float('subsample', 0.5, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0)
         }
-    # ToDo: Add more elif blocks for other models...
+    elif model_type.lower() == "dt":
+        params = {
+            'max_depth': trial.suggest_int('max_depth', 3, 30),
+            'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
+            'criterion': trial.suggest_categorical('criterion', ['gini', 'entropy']),
+            'class_weight': trial.suggest_categorical('class_weight', ['balanced', None])
+        }
+    elif model_type.lower() == "adaboost":
+        params = {
+            'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 1.0, log=True),
+            'algorithm': trial.suggest_categorical('algorithm', ['SAMME', 'SAMME.R'])
+        }
+    elif model_type.lower() == "knn":
+        params = {
+            'n_neighbors': trial.suggest_int('n_neighbors', 3, 20),
+            'weights': trial.suggest_categorical('weights', ['uniform', 'distance']),
+            'p': trial.suggest_int('p', 1, 2),  # 1 for manhattan_distance, 2 for euclidean_distance
+            'leaf_size': trial.suggest_int('leaf_size', 20, 50)
+        }
+    elif model_type.lower() == "lda":
+        params = {
+            'solver': trial.suggest_categorical('solver', ['svd', 'lsqr', 'eigen']),
+            'shrinkage': trial.suggest_float('shrinkage', 0.0, 1.0) if trial.suggest_categorical('use_shrinkage', [True, False]) else None,
+            'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
+        }
+    elif model_type.lower() == "qda":
+        params = {
+            'reg_param': trial.suggest_float('reg_param', 0.0, 1.0),
+            'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
+        }
     else:
         raise ValueError(f"Hyperparameter optimization not implemented for model type: {model_type}")
 
