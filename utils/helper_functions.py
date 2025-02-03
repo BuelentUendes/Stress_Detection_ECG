@@ -332,7 +332,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
         print(results)
 
     # Save results to a JSON file
-    with open(save_path + "_performance_metrics.json", 'w') as f:
+    with open(os.path.join(save_path, "performance_metrics.json"), 'w') as f:
         json.dump(results, f)  # Save results in JSON format
 
     return results
