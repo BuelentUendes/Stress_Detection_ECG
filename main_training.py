@@ -54,7 +54,8 @@ def main(args):
     # Instantiate the ml model
     ml_model = get_ml_model(args.model_type)
 
-    print(f"We fit the model {args.model_type}")
+    if args.verboose:
+        print(f"We fit the model {args.model_type}")
     ml_model.fit(train_data[0], train_data[1])
 
     # Now evaluate the model
@@ -65,7 +66,8 @@ def main(args):
         'test_balanced_accuracy': metrics.balanced_accuracy_score(test_data[1], ml_model.predict(test_data[0])),
     }
 
-    print(results)
+    if args.verboose:
+        print(results)
     # Fit the model to the train data and test it on the test data (no hyperparameter tuning for now)
 
     # Further ToDos:
