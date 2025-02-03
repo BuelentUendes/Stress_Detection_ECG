@@ -3,6 +3,7 @@
 import os
 import random
 import json
+import yaml
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -336,6 +337,19 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
     return results
 
+
+def load_yaml_config_file(path_to_yaml_file: str):
+    """
+    Loads a yaml file
+    :param path_to_yaml_file:
+    :return: the resulting dictionary
+    """
+    try:
+        with open(path_to_yaml_file) as file:
+            config = yaml.safe_load(file)
+        return config
+    except FileNotFoundError:
+        print("We could not find the yaml file that you specified")
 
 
 
