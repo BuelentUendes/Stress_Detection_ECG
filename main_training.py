@@ -8,13 +8,15 @@ import numpy as np
 
 from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH
 from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
-    get_data_balance, evaluate_classifier, create_directory
+    get_data_balance, evaluate_classifier, create_directory, load_yaml_config_file
 
 
 MODELS_ABBREVIATION_DICT = {
     "lr": "Logistic regression",
     "rf": "Random Forest",
     "dt": "Decision Tree",
+    "knn": "K-nearest Neighbor",
+    "adaboost": "Adaboost",
     "xgboost": "Extreme Gradient Boosting",
     "lda": "Linear discriminant analysis",
     "qda": "Quadratic discriminant analysis"
@@ -47,6 +49,7 @@ def validate_ml_model(value: str) -> str:
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size))
     results_path = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), args.model_type.lower())
+    model_config_file = os.path.join(CONFIG_PATH, "models_config_file.yaml")
     create_directory(results_path)
 
     ecg_dataset = ECGDataset(target_data_path)
@@ -64,8 +67,10 @@ def main(args):
     # Get the data balance
     data_balance = get_data_balance(train_data[1], val_data[1], test_data[1])
 
+    # Load the config file for the ml model
+    ml_model_config = load_yaml_config_file(model_config_file)
     # Instantiate the ml model
-    ml_model = get_ml_model(args.model_type)
+    ml_model = get_ml_model(args.model_type, params=ml_model_config)
 
     if args.verbose:
         print(f"Data balance: Class 1: {data_balance}")
