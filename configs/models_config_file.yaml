@@ -25,7 +25,6 @@ models_config:
     max_depth: 7
     learning_rate: 0.00747
     n_estimators: 188
-    min_child_weight: 2
 
   lr:
     C: 0.0556418
