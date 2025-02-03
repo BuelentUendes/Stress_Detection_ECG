@@ -257,8 +257,8 @@ def get_ml_model(model: str, params: dict = None):
         raise ValueError('Invalid model')
 
     # Use default parameters if none are provided
-    if params is None:
-        params = default_params[model.lower()]
+    #ToDo: Implement the model configs
+    params = default_params[model.lower()] if params is None else params["models_config"][model.lower()]
 
     cls = model_classes[model.lower()](**params)  # Initialize the model with parameters
 
