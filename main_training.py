@@ -8,7 +8,7 @@ import numpy as np
 
 from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH
 from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
-    get_data_balance, evaluate_classifier
+    get_data_balance, evaluate_classifier, create_directory
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -46,6 +46,9 @@ def validate_ml_model(value: str) -> str:
 
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size))
+    results_path = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), args.model_type.lower())
+    create_directory(results_path)
+
     ecg_dataset = ECGDataset(target_data_path)
     train_data, val_data, test_data = ecg_dataset.get_data()
 
@@ -71,11 +74,16 @@ def main(args):
     ml_model.fit(train_data[0], train_data[1])
 
     # Fit the model to the train data and test it on the test data (no hyperparameter tuning for now)
-    evaluate_classifier(ml_model, train_data, val_data, test_data, verbose=args.verbose)
+    evaluate_classifier(ml_model, train_data, val_data, test_data, results_path, verbose=args.verbose)
 
     # Further ToDos:
     #ToDo: Add simple machine learning fit and test
     # Check effect on unseen participants -> training with mixed individuals were we split based on the total data
+    # Get hyperparameter tuning pipeline with optuna
+    # Get config files, hydra model
+    # Can we mash categories together / or get single individual categories?
+    # So split up performance by exact categories:
+    # Mental stress
     # And the clean split were we split on participants, where generalization matters a lot
     # Get the overall performance (when we aggregate the categories), as well as individual splits
     # Add optuna for hyperparameter tuning
