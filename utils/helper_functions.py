@@ -258,7 +258,8 @@ def get_ml_model(model: str, params: dict = None):
 
     # Use default parameters if none are provided
     #ToDo: Implement the model configs
-    params = default_params[model.lower()] if params is None else params["models_config"][model.lower()]
+    if params is None:
+        params = default_params[model.lower()]
 
     cls = model_classes[model.lower()](**params)  # Initialize the model with parameters
 
@@ -289,7 +290,8 @@ def evaluate_classifier(ml_model: BaseEstimator,
                         train_data: tuple[np.ndarray, np.ndarray],
                         val_data: tuple[np.ndarray, np.ndarray],
                         test_data: tuple[np.ndarray, np.ndarray],
-                        save_path: str, 
+                        save_path: str,
+                        save_name: str,
                         verbose: bool = False) -> dict[str, float]:
     """
     Evaluates the trained machine learning model and gets the performance metrics
@@ -298,7 +300,8 @@ def evaluate_classifier(ml_model: BaseEstimator,
     :param val_data: tuple, with 0 being the x_data and 1 the labels
     :param test_data: tuple, with 0 being the x_data and 1 the labels
     :param save_path: str, path where to save the results
-    :param verbose: flag for verbose output
+    :param verbose: bool, flag for verbose output
+    :param save_name: str, name of the json file
     :return: dictionary with the performance metrics
     """
 
@@ -332,7 +335,10 @@ def evaluate_classifier(ml_model: BaseEstimator,
         print(results)
 
     # Save results to a JSON file
-    with open(os.path.join(save_path, "performance_metrics.json"), 'w') as f:
+    if save_name is None:
+        save_name = "performance_metrics.json"
+
+    with open(os.path.join(save_path, save_name), 'w') as f:
         json.dump(results, f)  # Save results in JSON format
 
     return results
