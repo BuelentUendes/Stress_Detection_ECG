@@ -11,12 +11,11 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
-from xgboost import XGBClassifier
 
 
 def create_directory(path: str) -> None:
@@ -139,7 +138,7 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
     # The target label needs to be an integer
     y = data["category"].astype(int)
 
-    return x, y
+    return x,y
 
 
 def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -228,36 +227,36 @@ def get_ml_model(model: str, params: dict = None):
     """
     # Default parameters for each model
     default_params = {
-        "DT": {"random_state": 42},
-        "RF": {"random_state": 42, "bootstrap": False},
-        "AdaBoost": {"base_estimator": DecisionTreeClassifier(criterion='entropy', min_samples_split=20)},
-        "LDA": {},
-        "KNN": {},
-        "LR": {},
-        "XGBoost": {},
-        "QDA": {}
+        "dt": {"random_state": 42},
+        "rf": {"random_state": 42, "bootstrap": False},
+        "adaboost": {"base_estimator": DecisionTreeClassifier(criterion='entropy', min_samples_split=20)},
+        "lda": {},
+        "knn": {},
+        "lr": {},
+        "xgboost": {},
+        "qda": {}
     }
 
     # Map model names to their corresponding classes
     model_classes = {
-        "DT": DecisionTreeClassifier,
-        "RF": RandomForestClassifier,
-        "AdaBoost": AdaBoostClassifier,
-        "LDA": LinearDiscriminantAnalysis,
-        "KNN": KNeighborsClassifier,
-        "LR": LogisticRegression,
-        "XGBoost": XGBClassifier,
-        "QDA": QuadraticDiscriminantAnalysis
+        "dt": DecisionTreeClassifier,
+        "rf": RandomForestClassifier,
+        "adaboost": AdaBoostClassifier,
+        "lda": LinearDiscriminantAnalysis,
+        "knn": KNeighborsClassifier,
+        "lr": LogisticRegression,
+        "xgboost": GradientBoostingClassifier,
+        "qda": QuadraticDiscriminantAnalysis
     }
 
-    if model not in model_classes:
+    if model.lower() not in model_classes:
         raise ValueError('Invalid model')
 
     # Use default parameters if none are provided
     if params is None:
-        params = default_params[model]
+        params = default_params[model.lower()]
 
-    cls = model_classes[model](**params)  # Initialize the model with parameters
+    cls = model_classes[model.lower()](**params)  # Initialize the model with parameters
 
     return cls
 
