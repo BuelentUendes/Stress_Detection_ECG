@@ -43,6 +43,12 @@ def validate_category(value: str) -> str:
     return value
 
 
+def validate_target_metric(value: str) -> str:
+    if value.lower() not in ["roc_auc", "accuracy"]:
+        raise argparse.ArgumentTypeError(f"Invalid choice: {value}. Choose from 'standard_scaler' or 'min_max'.")
+    return value.lower()
+
+
 def validate_ml_model(value: str) -> str:
     valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda']
     if value.lower() not in valid_ml_models:
@@ -51,7 +57,12 @@ def validate_ml_model(value: str) -> str:
     return value
 
 
-def objective(trial: Trial, train_data: tuple, val_data: tuple, model_type: str) -> float:
+def objective(trial: Trial,
+              train_data: tuple,
+              val_data: tuple,
+              model_type: str,
+              metric: str = "roc_auc",
+              ) -> float:
     """
     Objective function for Optuna optimization.
     Returns validation balanced accuracy as the optimization metric.
@@ -79,7 +90,7 @@ def objective(trial: Trial, train_data: tuple, val_data: tuple, model_type: str)
             'subsample': trial.suggest_float('subsample', 0.5, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0)
         }
-    # Add more elif blocks for other models...
+    # ToDo: Add more elif blocks for other models...
     else:
         raise ValueError(f"Hyperparameter optimization not implemented for model type: {model_type}")
 
@@ -88,16 +99,21 @@ def objective(trial: Trial, train_data: tuple, val_data: tuple, model_type: str)
     model.fit(train_data[0], train_data[1])
     
     # Evaluate on validation set
-    val_pred = model.predict(val_data[0])
-    val_score = metrics.balanced_accuracy_score(val_data[1], val_pred)
-    
+    if metric == "accuracy":
+        val_pred = model.predict(val_data[0])
+        val_score = metrics.balanced_accuracy_score(val_data[1], val_pred)
+    elif metric == "roc_auc":
+        val_score = metrics.roc_auc_score(val_data[1], model.predict_proba(val_data[0])[:, 1])
+
     return val_score
 
 
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size))
-    results_path = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), args.model_type.lower())
-    model_config_file = os.path.join(CONFIG_PATH, "models_config_file.yaml")
+    results_path = os.path.join(RESULTS_PATH,
+                                str(args.sample_frequency),
+                                str(args.window_size),
+                                args.model_type.lower())
     create_directory(results_path)
 
     ecg_dataset = ECGDataset(target_data_path)
@@ -125,7 +141,7 @@ def main(args):
     
     # Run optimization
     study.optimize(
-        lambda trial: objective(trial, train_data, val_data, args.model_type),
+        lambda trial: objective(trial, train_data, val_data, args.model_type, args.metric_to_optimize),
         n_trials=args.n_trials,
         timeout=args.timeout  # in seconds
     )
@@ -164,6 +180,9 @@ def main(args):
 
     # Further ToDos:
     #ToDo: Add simple machine learning fit and test
+    # Check: with window size 30s compared to 60s better resuls?
+    # Also, I need to use all cores of scikit learn
+    #
     # Check effect on unseen participants -> training with mixed individuals were we split based on the total data
     # Get hyperparameter tuning pipeline with optuna CHECK
     # Get config files, hydra model
@@ -175,8 +194,6 @@ def main(args):
     # Add optuna for hyperparameter tuning
     # wandb logging for tracking experiment?
     # Date
-    # Save the best model in a model path
-        # Create the model path and directory
     # Fix the windows -> heartbeat should be set dynamically or threshold 40 beats per minute
 
 
@@ -197,10 +214,11 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda'",
-                        type=validate_ml_model, default="LR")
+                        type=validate_ml_model, default="rf")
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--n_trials", type=int, default=50,
                        help="Number of optimization trials for Optuna")
+    parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
     parser.add_argument("--timeout", type=int, default=3600,
                        help="Timeout for optimization in seconds")
     args = parser.parse_args()
