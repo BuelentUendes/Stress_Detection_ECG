@@ -5,13 +5,20 @@ import argparse
 
 import torch
 import numpy as np
-import random
-from sklearn import metrics  # Importing the necessary metrics
 
 from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH
-from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model
+from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
+    get_data_balance, evaluate_classifier
 
-# Import the metrics
+
+MODELS_ABBREVIATION_DICT = {
+    "lr": "Logistic regression",
+    "rf": "Random Forest",
+    "dt": "Decision Tree",
+    "xgboost": "Extreme Gradient Boosting",
+    "lda": "Linear discriminant analysis",
+    "qda": "Quadratic discriminant analysis"
+}
 
 
 def validate_scaler(value: str) -> str:
@@ -51,29 +58,26 @@ def main(args):
         scaler=args.standard_scaler
     )
 
+    # Get the data balance
+    data_balance = get_data_balance(train_data[1], val_data[1], test_data[1])
+
     # Instantiate the ml model
     ml_model = get_ml_model(args.model_type)
 
-    if args.verboose:
-        print(f"We fit the model {args.model_type}")
+    if args.verbose:
+        print(f"Data balance: Class 1: {data_balance}")
+        print(f"We fit the model {MODELS_ABBREVIATION_DICT[args.model_type.lower()]}")
+
     ml_model.fit(train_data[0], train_data[1])
 
-    # Now evaluate the model
-    results = {
-        'val_accuracy': metrics.accuracy_score(val_data[1], ml_model.predict(val_data[0])),
-        'val_balanced_accuracy': metrics.balanced_accuracy_score(val_data[1], ml_model.predict(val_data[0])),
-        'test_accuracy': metrics.accuracy_score(test_data[1], ml_model.predict(test_data[0])),
-        'test_balanced_accuracy': metrics.balanced_accuracy_score(test_data[1], ml_model.predict(test_data[0])),
-    }
-
-    if args.verboose:
-        print(results)
     # Fit the model to the train data and test it on the test data (no hyperparameter tuning for now)
+    evaluate_classifier(ml_model, train_data, val_data, test_data, verbose=args.verbose)
 
     # Further ToDos:
-    # ToDo: Add simple machine learning fit and test
-    # Check balance and imbalance of the data classes
-    # 
+    #ToDo: Add simple machine learning fit and test
+    # Check effect on unseen participants -> training with mixed individuals were we split based on the total data
+    # And the clean split were we split on participants, where generalization matters a lot
+    # Get the overall performance (when we aggregate the categories), as well as individual splits
     # Add optuna for hyperparameter tuning
     # wandb logging for tracking experiment?
     # logg results in a results folder
