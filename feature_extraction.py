@@ -32,7 +32,7 @@ def main(args):
     create_directory(output_path)
 
     input_file = str(args.participant_number) + ".csv" if args.participant_number != -1 else "*.csv"
-    print(f"we are processing {input_file}")
+    print(f"we are processing {input_file}" if args.participant_number != -1 else f"we are processing all files")
 
     Segmenter() \
         .data(read_csv(os.path.join(input_path, f'{input_file}'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category'])) \
