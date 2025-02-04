@@ -7,6 +7,7 @@ import torch
 import numpy as np
 import optuna
 from sklearn import metrics
+
 from optuna.trial import Trial
 import json
 from datetime import datetime
@@ -116,7 +117,7 @@ def objective(trial: Trial,
         }
     elif model_type.lower() == "knn":
         params = {
-            'n_neighbors': trial.suggest_int('n_neighbors', 3, 50),
+            'n_neighbors': trial.suggest_int('n_neighbors', 1, 50),
             'weights': trial.suggest_categorical('weights', ['uniform', 'distance']),
             'p': trial.suggest_int('p', 1, 2),  # 1 for manhattan_distance, 2 for euclidean_distance
             'leaf_size': trial.suggest_int('leaf_size', 20, 50),
@@ -167,6 +168,7 @@ def main(args):
         test_data,
         positive_class=args.positive_class,
         negative_class=args.negative_class,
+        use_downsampling=args.use_downsampling,
         scaler=args.standard_scaler
     )
 
@@ -221,31 +223,13 @@ def main(args):
         print(f"Data balance: Class 1: {data_balance}")
         print(f"We fit the model {MODELS_ABBREVIATION_DICT[args.model_type.lower()]}")
 
-    # Further ToDos:
-    #ToDo: Add simple machine learning fit and test
-    # Check: with window size 30s compared to 60s better resuls?
-    # Also, I need to use all cores of scikit learn TODO!
-    # Do optionally hyperparameter tuning only if set, otherwise load the config files where we input the best hyperparameters already!
-    # Check effect on unseen participants -> training with mixed individuals were we split based on the total data
-    # Get hyperparameter tuning pipeline with optuna CHECK
-    # Get config files, hydra model
-    # Can we mash categories together / or get single individual categories?
-    # So split up performance by exact categories:
-    # Mental stress
-    # And the clean split were we split on participants, where generalization matters a lot
-    # Get the overall performance (when we aggregate the categories), as well as individual splits
-    # Add optuna for hyperparameter tuning
-    # wandb logging for tracking experiment?
-    # Date
-    # Fix the windows -> heartbeat should be set dynamically or threshold 40 beats per minute
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="baseline",
+    parser.add_argument("--negative_class", help="Which category should be 0", default="low_physical_activity",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
@@ -253,21 +237,23 @@ if __name__ == "__main__":
                         default="standard_scaler")
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)
-    parser.add_argument("--window_size", type=int, default=10, help="The window size that we use for detecting stress")
+    parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda'",
                         type=validate_ml_model, default="lr")
+    parser.add_argument("--use_downsampling", action="store_true",
+                        help="if set, we downsample the majority class")
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
-    parser.add_argument("--n_trials", type=int, default=25,
-                       help="Number of optimization trials for Optuna")
+    parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
-    parser.add_argument("--timeout", type=int, default=3600,
-                       help="Timeout for optimization in seconds")
+    parser.add_argument("--timeout", type=int, default=3600,help="Timeout for optimization in seconds")
     args = parser.parse_args()
 
     # Set seed for reproducibility
     set_seed(args.seed)
+
+    args.use_downsampling = True
 
     main(args)
 
