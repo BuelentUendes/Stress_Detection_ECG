@@ -78,17 +78,17 @@ def objective(trial: Trial,
     # Define hyperparameter search space based on model type
     if model_type.lower() == "lr":
         params = {
-            'C': trial.suggest_float('C', 1e-5, 1e2, log=True),
-            'max_iter': trial.suggest_int('max_iter', 100, 500),
+            'C': trial.suggest_float('C', 1e-7, 1e2, log=True),
+            'max_iter': 2000,
             'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
             'n_jobs': -1,
         }
     elif model_type.lower() == "rf":
         params = {
             'n_estimators': trial.suggest_int('n_estimators', 50, 300),
-            'max_depth': trial.suggest_int('max_depth', 3, 20),
-            'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
-            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
+            'max_depth': trial.suggest_int('max_depth', 5, 50),
+            'min_samples_split': trial.suggest_int('min_samples_split', 5, 25),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 5, 25),
             'class_weight': trial.suggest_categorical('class_weight', ['balanced', 'balanced_subsample', None]),
             'n_jobs': -1,
         }
