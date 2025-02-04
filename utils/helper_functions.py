@@ -4,6 +4,7 @@ import os
 import random
 import json
 import yaml
+from typing import Optional
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -14,6 +15,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn import metrics
 from sklearn.base import BaseEstimator
+from sklearn.utils import resample
 
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -60,7 +62,7 @@ class ECGDataset:
     Feature engineered dataset for the ECG dataset
     """
 
-    def __init__(self, root_dir: str, test_size: float = 0.2, val_size: float = 0.2):
+    def __init__(self, root_dir: str, test_size: Optional[float] = 0.2, val_size: Optional[float] = 0.2):
         """
         :param root_dir: root directory for the data import
         :param test_size: test size split, default 0.2
@@ -161,11 +163,49 @@ def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
+def downsample_majority_class(data: pd.DataFrame, positive_class: str, negative_class: str) -> pd.DataFrame:
+    """
+    Downsamples the majority class to match the size of the minority class.
+    
+    Args:
+        data (pd.DataFrame): Input DataFrame containing the data
+        positive_class (str): Label of the positive class
+        negative_class (str): Label of the negative class
+    
+    Returns:
+        pd.DataFrame: Balanced DataFrame with downsampled majority class
+    """
+    df_positive_class = data[data["category"] == positive_class]
+    df_negative_class = data[data["category"] == negative_class]
+
+    # We need to downsample the majority class
+    if len(df_positive_class) >= len(df_negative_class):
+        positive_class_downsampled = resample(df_positive_class, 
+                                            replace=False, 
+                                            n_samples=len(df_negative_class),
+                                            random_state=42)  
+        balanced_data = pd.concat([positive_class_downsampled, df_negative_class])
+    else:
+        negative_class_downsampled = resample(df_negative_class, 
+                                            replace=False, 
+                                            n_samples=len(df_positive_class),
+                                            random_state=42)  
+        balanced_data = pd.concat([negative_class_downsampled, df_positive_class])
+
+    # Verify the balancing worked
+    assert len(balanced_data[balanced_data["category"] == positive_class]) == \
+           len(balanced_data[balanced_data["category"] == negative_class]), \
+           "Downsampling failed: classes are not balanced"
+
+    return balanced_data
+
+
 def prepare_data(train_data: pd.DataFrame,
                  val_data: pd.DataFrame,
                  test_data: pd.DataFrame,
-                 positive_class: str = "mental_stress",
-                 negative_class: str = "baseline",
+                 positive_class: Optional[str] = "mental_stress",
+                 negative_class: Optional[str] = "baseline",
+                 use_downsampling: Optional[bool] = False,
                  scaler: StandardScaler = None) -> tuple:
     """
     Prepares the data for scikit-learn models.
@@ -175,6 +215,7 @@ def prepare_data(train_data: pd.DataFrame,
     :param positive_class str: which category to be encoded as 1
     :param negative_class str: which category to be encoded as 0
     :param scaler: StandardScaler instance for normalization
+    :param use_downsampling: bool, if set, we downsample the majority class. Default False
     :return: Tuple of (X_train, y_train, X_val, y_val, X_test, y_test)
     """
 
@@ -182,6 +223,10 @@ def prepare_data(train_data: pd.DataFrame,
     train_data = handle_missing_data(train_data)
     val_data = handle_missing_data(val_data)
     test_data = handle_missing_data(test_data)
+
+    # Downsample the majority class if necessary
+    if use_downsampling:
+        train_data = downsample_majority_class(train_data, positive_class, negative_class)
 
     # Get the columns
     x_train, y_train = encode_data(train_data, positive_class, negative_class)
