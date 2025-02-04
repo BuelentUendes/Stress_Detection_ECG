@@ -1,40 +1,41 @@
 # Important: These initial results are the ones already provided by Alex based on some hyperparameter tuning
 # ToDo: We need to run it again with optuna
 
-models_config:
+rf:
+  max_depth: 5
+  min_samples_split: 50
+  max_features: "sqrt"
+  criterion: "gini"
+  n_estimators: 100
+  n_jobs: -1
 
-  rf:
-    max_depth: 5
-    min_samples_split: 50
-    max_features: "sqrt"
-    criterion: "gini"
-    n_estimators: 100
+knn:
+  n_neighbors: 9
+  n_jobs: -1
 
-  knn:
-    n_neighbors: 9
+dt:
+  max_depth: 12
+  min_samples_split: 20
+  min_samples_leaf: 15
 
-  dt:
-    max_depth: 12
-    min_samples_split: 20
-    min_samples_leaf: 15
+adaboost:
+  n_estimators: 100
 
-  adaboost:
-    n_estimators: 100
+xgboost:
+  max_depth: 7
+  learning_rate: 0.00747
+  n_estimators: 188
 
-  xgboost:
-    max_depth: 7
-    learning_rate: 0.00747
-    n_estimators: 188
+lr:
+  C: 0.0556418
+  solver: "newton-cg"
+  max_iter: 152
+  n_jobs: -1
 
-  lr:
-    C: 0.0556418
-    solver: "newton-cg"
-    max_iter: 152
+qda:
+  reg_param: 0.16
 
-  qda:
-    reg_param: 0.16
-
-  lda:
-    solver: "lsqr"
-    shrinkage: 0.1559945
+lda:
+  solver: "lsqr"
+  shrinkage: 0.1559945
 
