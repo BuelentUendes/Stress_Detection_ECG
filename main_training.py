@@ -176,7 +176,7 @@ def main(args):
     data_balance = get_data_balance(train_data[1], val_data[1], test_data[1])
 
     # Setup for hyperparameter optimization
-    study_name = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}_{args.model_type.lower()}"
+    study_name = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}_{args.use_downsampling}_{args.model_type.lower()}"
 
     study = optuna.create_study(
         direction="maximize",
@@ -252,8 +252,6 @@ if __name__ == "__main__":
 
     # Set seed for reproducibility
     set_seed(args.seed)
-
-    args.use_downsampling = True
 
     main(args)
 
