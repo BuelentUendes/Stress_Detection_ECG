@@ -256,8 +256,6 @@ def get_ml_model(model: str, params: dict = None):
     if model.lower() not in model_classes:
         raise ValueError('Invalid model')
 
-    # Use default parameters if none are provided
-    #ToDo: Implement the model configs
     if params is None:
         params = default_params[model.lower()]
 
@@ -323,10 +321,10 @@ def evaluate_classifier(ml_model: BaseEstimator,
         results['val_f1'] = round_result(metrics.f1_score(val_data[1], ml_model.predict(val_data[0])))
         results['test_f1'] = round_result(metrics.f1_score(test_data[1], ml_model.predict(test_data[0])))
 
-        # AUC
-        results['train_auc'] = round_result(metrics.roc_auc_score(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
-        results['val_auc'] = round_result(metrics.roc_auc_score(val_data[1], ml_model.predict_proba(val_data[0])[:, 1]))
-        results['test_auc'] = round_result(metrics.roc_auc_score(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
+        # ROC AUC
+        results['train_roc_auc'] = round_result(metrics.roc_auc_score(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
+        results['val_roc_auc'] = round_result(metrics.roc_auc_score(val_data[1], ml_model.predict_proba(val_data[0])[:, 1]))
+        results['test_roc_auc'] = round_result(metrics.roc_auc_score(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
 
     else:
         raise NotImplementedError("We have not yet implemented multiclass classification")
