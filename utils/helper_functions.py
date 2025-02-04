@@ -307,6 +307,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
         return np.round(value, 4)
 
     results = {
+        'proportion class 1': get_data_balance(train_data[1], val_data[1], test_data[1]),
         'train_accuracy': round_result(metrics.accuracy_score(train_data[1], ml_model.predict(train_data[0]))),
         'train_balanced_accuracy': round_result(metrics.balanced_accuracy_score(train_data[1], ml_model.predict(train_data[0]))),
         'val_accuracy': round_result(metrics.accuracy_score(val_data[1], ml_model.predict(val_data[0]))),
