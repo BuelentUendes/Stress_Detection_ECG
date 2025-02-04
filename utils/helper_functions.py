@@ -232,11 +232,11 @@ def get_ml_model(model: str, params: dict = None):
     # Default parameters for each model
     default_params = {
         "dt": {"random_state": 42},
-        "rf": {"random_state": 42, "bootstrap": False},
+        "rf": {"random_state": 42, "bootstrap": False, "n_jobs": -1},
         "adaboost": {"base_estimator": DecisionTreeClassifier(criterion='entropy', min_samples_split=20)},
         "lda": {},
-        "knn": {},
-        "lr": {},
+        "knn": {"n_jobs": -1},
+        "lr": {"n_jobs": -1},
         "xgboost": {},
         "qda": {}
     }
