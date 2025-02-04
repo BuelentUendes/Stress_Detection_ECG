@@ -27,6 +27,14 @@ MODELS_ABBREVIATION_DICT = {
     "qda": "Quadratic discriminant analysis"
 }
 
+LABEL_ABBREVIATION_DICT = {
+    "mental_stress": "MS",
+    "baseline": "BASE",
+    "high_physical_activity": "HPA",
+    "moderate_physical_activity": "MPA",
+    "low_physical_activity": "LPA",
+}
+
 
 def validate_scaler(value: str) -> str:
     if value not in ["standard_scaler", "min_max", None]:
@@ -106,7 +114,7 @@ def objective(trial: Trial,
         }
     elif model_type.lower() == "knn":
         params = {
-            'n_neighbors': trial.suggest_int('n_neighbors', 3, 20),
+            'n_neighbors': trial.suggest_int('n_neighbors', 3, 50),
             'weights': trial.suggest_categorical('weights', ['uniform', 'distance']),
             'p': trial.suggest_int('p', 1, 2),  # 1 for manhattan_distance, 2 for euclidean_distance
             'leaf_size': trial.suggest_int('leaf_size', 20, 50)
@@ -163,7 +171,8 @@ def main(args):
     data_balance = get_data_balance(train_data[1], val_data[1], test_data[1])
 
     # Setup for hyperparameter optimization
-    study_name = f"{args.model_type.lower()}"
+    study_name = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}_{args.model_type.lower()}"
+
     study = optuna.create_study(
         direction="maximize",
         study_name=study_name,
@@ -181,7 +190,7 @@ def main(args):
     best_params = study.best_params
     best_model = get_ml_model(args.model_type, best_params)
     best_model.fit(train_data[0], train_data[1])
-    
+
     # Evaluate final model
     evaluate_classifier(
         best_model, train_data, val_data, test_data,
@@ -212,7 +221,7 @@ def main(args):
     # Further ToDos:
     #ToDo: Add simple machine learning fit and test
     # Check: with window size 30s compared to 60s better resuls?
-    # Also, I need to use all cores of scikit learn
+    # Also, I need to use all cores of scikit learn TODO!
     #
     # Check effect on unseen participants -> training with mixed individuals were we split based on the total data
     # Get hyperparameter tuning pipeline with optuna CHECK
@@ -241,13 +250,13 @@ if __name__ == "__main__":
                         default="standard_scaler")
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)
-    parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
+    parser.add_argument("--window_size", type=int, default=10, help="The window size that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda'",
-                        type=validate_ml_model, default="rf")
+                        type=validate_ml_model, default="lr")
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
-    parser.add_argument("--n_trials", type=int, default=50,
+    parser.add_argument("--n_trials", type=int, default=25,
                        help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
     parser.add_argument("--timeout", type=int, default=3600,
