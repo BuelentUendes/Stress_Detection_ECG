@@ -80,7 +80,8 @@ def objective(trial: Trial,
         params = {
             'C': trial.suggest_float('C', 1e-5, 1e2, log=True),
             'max_iter': trial.suggest_int('max_iter', 100, 500),
-            'class_weight': trial.suggest_categorical('class_weight', ['balanced', None])
+            'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
+            'n_jobs': -1,
         }
     elif model_type.lower() == "rf":
         params = {
@@ -88,7 +89,8 @@ def objective(trial: Trial,
             'max_depth': trial.suggest_int('max_depth', 3, 20),
             'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
             'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
-            'class_weight': trial.suggest_categorical('class_weight', ['balanced', 'balanced_subsample', None])
+            'class_weight': trial.suggest_categorical('class_weight', ['balanced', 'balanced_subsample', None]),
+            'n_jobs': -1,
         }
     elif model_type.lower() == "xgboost":
         params = {
@@ -117,7 +119,8 @@ def objective(trial: Trial,
             'n_neighbors': trial.suggest_int('n_neighbors', 3, 50),
             'weights': trial.suggest_categorical('weights', ['uniform', 'distance']),
             'p': trial.suggest_int('p', 1, 2),  # 1 for manhattan_distance, 2 for euclidean_distance
-            'leaf_size': trial.suggest_int('leaf_size', 20, 50)
+            'leaf_size': trial.suggest_int('leaf_size', 20, 50),
+            "n_jobs": -1
         }
     elif model_type.lower() == "lda":
         params = {
@@ -222,7 +225,7 @@ def main(args):
     #ToDo: Add simple machine learning fit and test
     # Check: with window size 30s compared to 60s better resuls?
     # Also, I need to use all cores of scikit learn TODO!
-    #
+    # Do optionally hyperparameter tuning only if set, otherwise load the config files where we input the best hyperparameters already!
     # Check effect on unseen participants -> training with mixed individuals were we split based on the total data
     # Get hyperparameter tuning pipeline with optuna CHECK
     # Get config files, hydra model
