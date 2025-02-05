@@ -2,6 +2,7 @@
 
 import os
 import argparse
+from typing import Optional, Tuple, Union, Any
 
 import torch
 import numpy as np
@@ -25,7 +26,8 @@ MODELS_ABBREVIATION_DICT = {
     "adaboost": "Adaboost",
     "xgboost": "Extreme Gradient Boosting",
     "lda": "Linear discriminant analysis",
-    "qda": "Quadratic discriminant analysis"
+    "qda": "Quadratic discriminant analysis",
+    "random_baseline": "Random baseline",
 }
 
 LABEL_ABBREVIATION_DICT = {
@@ -59,7 +61,7 @@ def validate_target_metric(value: str) -> str:
 
 
 def validate_ml_model(value: str) -> str:
-    valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda']
+    valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'random_baseline']
     if value.lower() not in valid_ml_models:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {valid_ml_models}.")
@@ -142,6 +144,11 @@ def objective(trial: Trial,
             'reg_param': trial.suggest_float('reg_param', 0.0, 1.0),
             'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
         }
+    elif model_type.lower() == "random_baseline":
+        params = {
+            "strategy": "prior"
+        }
+
     else:
         raise ValueError(f"Hyperparameter optimization not implemented for model type: {model_type}")
 
@@ -159,16 +166,22 @@ def objective(trial: Trial,
     return val_score
 
 
+def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
+    try:
+        with open(os.path.join(file_path, file_name)) as file:
+            print(f"We found the .json file and load it")
+            return json.load(file)["best_params"]
+    except FileNotFoundError:
+        return None
+
+
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size))
 
     # Create path folder depending on the comparison we are trying to do
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
 
-    results_path_root = os.path.join(RESULTS_PATH,
-                                str(args.sample_frequency),
-                                str(args.window_size),
-                                     comparison,
+    results_path_root = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison,
                                 args.model_type.lower())
 
 
@@ -198,21 +211,26 @@ def main(args):
     # Setup for hyperparameter optimization
     study_name = f"{args.resampling_method}_{args.model_type.lower()}"
 
-    study = optuna.create_study(
-        direction="maximize",
-        study_name=study_name,
-        sampler=optuna.samplers.TPESampler(seed=args.seed)
-    )
-    
-    # Run optimization
-    study.optimize(
-        lambda trial: objective(trial, train_data, val_data, args.model_type, args.metric_to_optimize),
-        n_trials=args.n_trials,
-        timeout=args.timeout  # in seconds
-    )
-    
-    # Get best parameters and train final model
-    best_params = study.best_params
+    if args.do_hyperparameter_tuning:
+        study = optuna.create_study(
+            direction="maximize",
+            study_name=study_name,
+            sampler=optuna.samplers.TPESampler(seed=args.seed)
+        )
+
+        # Run optimization
+        study.optimize(
+            lambda trial: objective(trial, train_data, val_data, args.model_type, args.metric_to_optimize),
+            n_trials=args.n_trials,
+            timeout=args.timeout  # in seconds
+        )
+
+        # Get best parameters and train final model
+        best_params = study.best_params
+
+    else:
+        best_params = load_best_params(results_path_history, f"{study_name}_optimization_history.json")
+
     best_model = get_ml_model(args.model_type, best_params)
     best_model.fit(train_data[0], train_data[1])
 
@@ -222,22 +240,23 @@ def main(args):
         save_path=results_path_best_performance,
         save_name=f"{study_name}_best_performance_results.json",
         verbose=args.verbose)
-    
-    # Save study statistics and best parameters
-    study_stats = {
-        "best_params": best_params,
-        "best_value": study.best_value,
-        "n_trials": len(study.trials),
-        "study_name": study_name,
-        "model_type": args.model_type,
-        "optimization_history": [
-            {"number": t.number, "value": t.value, "params": t.params}
-            for t in study.trials
-        ]
-    }
-    
-    with open(os.path.join(results_path_history, f"{study_name}_optimization_history.json"), "w") as f:
-        json.dump(study_stats, f, indent=4)
+
+    if args.do_hyperparameter_tuning:
+        # Save study statistics and best parameters
+        study_stats = {
+            "best_params": best_params,
+            "best_value": study.best_value,
+            "n_trials": len(study.trials),
+            "study_name": study_name,
+            "model_type": args.model_type,
+            "optimization_history": [
+                {"number": t.number, "value": t.value, "params": t.params}
+                for t in study.trials
+            ]
+        }
+
+        with open(os.path.join(results_path_history, f"{study_name}_optimization_history.json"), "w") as f:
+            json.dump(study_stats, f, indent=4)
 
     if args.verbose:
         print(f"Data balance: Class 1: {data_balance}")
@@ -264,11 +283,12 @@ if __name__ == "__main__":
                         type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
-                        type=validate_resampling_method, default='smote')
+                        type=validate_resampling_method, default=None)
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
+    parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
     parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
-    parser.add_argument("--timeout", type=int, default=3600,help="Timeout for optimization in seconds")
+    parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     args = parser.parse_args()
 
     # Set seed for reproducibility
@@ -276,5 +296,6 @@ if __name__ == "__main__":
 
     main(args)
 
-
+    # Useful discussion for the choice of evaluation metrics:
+    # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
 
