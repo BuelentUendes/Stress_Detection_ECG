@@ -4,14 +4,13 @@ import os
 import argparse
 from typing import Optional, Tuple, Union, Any
 
-import torch
 import numpy as np
 import optuna
 from sklearn import metrics
+from sklearn.dummy import DummyClassifier
 
 from optuna.trial import Trial
 import json
-from datetime import datetime
 
 from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH
 from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
@@ -106,10 +105,20 @@ def objective(trial: Trial,
     elif model_type.lower() == "xgboost":
         params = {
             'n_estimators': trial.suggest_int('n_estimators', 50, 300),
-            'max_depth': trial.suggest_int('max_depth', 3, 20),
-            'learning_rate': trial.suggest_float('learning_rate', 1e-4, 1.0, log=True),
-            'subsample': trial.suggest_float('subsample', 0.5, 1.0),
-            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0)
+            'max_depth': trial.suggest_int('max_depth', 3, 8),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+            
+            'objective': 'binary:logistic',
+            'eval_metric': 'auc',
+            
+            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+            
+            'reg_lambda': trial.suggest_float('reg_lambda', 0.01, 1.0),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 1.0),
+            
+            'use_label_encoder': False,
+            'n_jobs': 1
         }
     elif model_type.lower() == "dt":
         params = {
@@ -280,13 +289,13 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda'",
-                        type=validate_ml_model, default="lr")
+                        type=validate_ml_model, default="xgboost")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
-    parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
+    parser.add_argument("--n_trials", type=int, default=5, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     args = parser.parse_args()
