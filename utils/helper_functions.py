@@ -163,39 +163,58 @@ def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
-def downsample_majority_class(data: pd.DataFrame, positive_class: str, negative_class: str) -> pd.DataFrame:
+def resample_data(data: pd.DataFrame,
+                  positive_class: str,
+                  negative_class: str,
+                  downsample: bool) -> pd.DataFrame:
     """
-    Downsamples the majority class to match the size of the minority class.
+    Resample the data to balance classes, either via upsampling minority or downsampling majority.
     
     Args:
-        data (pd.DataFrame): Input DataFrame containing the data
-        positive_class (str): Label of the positive class
-        negative_class (str): Label of the negative class
-    
+        data: Input DataFrame containing the data
+        positive_class: Label of the positive class
+        negative_class: Label of the negative class
+        downsample: If True, downsample majority class; if False, upsample minority
+
     Returns:
-        pd.DataFrame: Balanced DataFrame with downsampled majority class
+        Balanced DataFrame with equal class distributions
+
+    Note:
+        Upsampling minority class will create duplicates for highly imbalanced data
     """
-    df_positive_class = data[data["category"] == positive_class]
-    df_negative_class = data[data["category"] == negative_class]
-
-    # We need to downsample the majority class
-    if len(df_positive_class) >= len(df_negative_class):
-        positive_class_downsampled = resample(df_positive_class, 
-                                            replace=False, 
-                                            n_samples=len(df_negative_class),
-                                            random_state=42)  
-        balanced_data = pd.concat([positive_class_downsampled, df_negative_class])
+    # Split data by class
+    df_positive = data[data["category"] == positive_class]
+    df_negative = data[data["category"] == negative_class]
+    
+    # Determine majority and minority classes
+    if len(df_positive) >= len(df_negative):
+        majority_df, minority_df = df_positive, df_negative
     else:
-        negative_class_downsampled = resample(df_negative_class, 
-                                            replace=False, 
-                                            n_samples=len(df_positive_class),
-                                            random_state=42)  
-        balanced_data = pd.concat([negative_class_downsampled, df_positive_class])
+        majority_df, minority_df = df_negative, df_positive
 
-    # Verify the balancing worked
-    assert len(balanced_data[balanced_data["category"] == positive_class]) == \
-           len(balanced_data[balanced_data["category"] == negative_class]), \
-           "Downsampling failed: classes are not balanced"
+    # Perform resampling
+    if downsample:
+        print(f"We downsample!")
+        resampled_majority = resample(majority_df,
+                                    replace=False,
+                                    n_samples=len(minority_df),
+                                    random_state=42)
+        balanced_data = pd.concat([resampled_majority, minority_df])
+    else:
+        print(f"We upsample!")
+        resampled_minority = resample(minority_df,
+                                    replace=True,
+                                    n_samples=len(majority_df),
+                                    random_state=42)
+        balanced_data = pd.concat([resampled_minority, majority_df])
+
+    # Shuffle the final dataset
+    balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    # Verify balancing
+    class_counts = balanced_data["category"].value_counts()
+    assert class_counts[positive_class] == class_counts[negative_class], \
+        f"Resampling failed: classes are not balanced. Counts: {class_counts}"
 
     return balanced_data
 
@@ -205,17 +224,17 @@ def prepare_data(train_data: pd.DataFrame,
                  test_data: pd.DataFrame,
                  positive_class: Optional[str] = "mental_stress",
                  negative_class: Optional[str] = "baseline",
-                 use_downsampling: Optional[bool] = False,
+                 resampling_method: Optional[str] = None,
                  scaler: StandardScaler = None) -> tuple:
     """
     Prepares the data for scikit-learn models.
     :param train_data: DataFrame containing the training data
     :param val_data: DataFrame containing the validation data
     :param test_data: DataFrame containing the test data
-    :param positive_class str: which category to be encoded as 1
-    :param negative_class str: which category to be encoded as 0
+    :param positive_class: str, which category to be encoded as 1
+    :param negative_class: str, which category to be encoded as 0
     :param scaler: StandardScaler instance for normalization
-    :param use_downsampling: bool, if set, we downsample the majority class. Default False
+    :param resampling_method: bool, if set, we downsample the majority class. Default False
     :return: Tuple of (X_train, y_train, X_val, y_val, X_test, y_test)
     """
 
@@ -224,9 +243,13 @@ def prepare_data(train_data: pd.DataFrame,
     val_data = handle_missing_data(val_data)
     test_data = handle_missing_data(test_data)
 
-    # Downsample the majority class if necessary
-    if use_downsampling:
-        train_data = downsample_majority_class(train_data, positive_class, negative_class)
+    # Use resampling if provided
+    if resampling_method is not None:
+        if resampling_method in ["downsample", "upsample"]:
+            do_downsampling = True if resampling_method == "downsample" else False
+            train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
+        elif resampling_method in ["smote"]:
+            raise NotImplementedError("smote is not yet implemented.")
 
     # Get the columns
     x_train, y_train = encode_data(train_data, positive_class, negative_class)
