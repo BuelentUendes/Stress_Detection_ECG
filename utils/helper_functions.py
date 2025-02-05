@@ -4,9 +4,11 @@ import os
 import random
 import json
 import yaml
-from typing import Optional
+from typing import Optional, Tuple, Union, Any
 
 import torch
+from numpy import ndarray
+from pandas import Series, DataFrame
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from numpy.testing import assert_almost_equal
@@ -135,7 +137,7 @@ class ECGDataset:
 
 
 #Todo: Extend to multiclass classification
-def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> pd.DataFrame:
+def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     # First drop data that is not either in the positive class or negative class
     data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
     # Then label the data 1 for positive and 0 for negative
@@ -146,7 +148,7 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
     # The target label needs to be an integer
     y = data["category"].astype(int)
 
-    return x,y
+    return x, y
 
 
 def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -258,15 +260,17 @@ def prepare_data(train_data: pd.DataFrame,
             # Re-encode the resampled data
             x_train, y_train = encode_data(train_data, positive_class, negative_class)
         elif resampling_method == "smote":
-            # Apply SMOTE only to training data
             smote = SMOTE(random_state=42, n_jobs=-1)
             x_train, y_train = smote.fit_resample(x_train, y_train)
         elif resampling_method == "adasyn":
-            # Apply ADASYN only to training data
             adasyn = ADASYN(random_state=42, n_jobs=-1)
             x_train, y_train = adasyn.fit_resample(x_train, y_train)
     else:
         # If no resampling, just encode the data normally
+        # Shuffle the data
+        # Shuffle the final training data
+        train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
+
         x_train, y_train = encode_data(train_data, positive_class, negative_class)
         x_val, y_val = encode_data(val_data, positive_class, negative_class)
         x_test, y_test = encode_data(test_data, positive_class, negative_class)
