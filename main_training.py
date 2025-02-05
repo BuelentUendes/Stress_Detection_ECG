@@ -38,18 +38,18 @@ LABEL_ABBREVIATION_DICT = {
 
 
 def validate_scaler(value: str) -> str:
-    if value not in ["standard_scaler", "min_max", None]:
+    if value.lower() not in ["standard_scaler", "min_max", None]:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. Choose from 'standard_scaler' or 'min_max'.")
-    return value
+    return value.lower()
 
 
 def validate_category(value: str) -> str:
     valid_categories = ['high_physical_activity', 'mental_stress', 'baseline',
                         'low_physical_activity', 'moderate_physical_activity']
-    if value not in valid_categories:
+    if value.lower() not in valid_categories:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {valid_categories}.")
-    return value
+    return value.lower()
 
 
 def validate_target_metric(value: str) -> str:
@@ -63,7 +63,15 @@ def validate_ml_model(value: str) -> str:
     if value.lower() not in valid_ml_models:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {valid_ml_models}.")
-    return value
+    return value.lower()
+
+
+def validate_resampling_method(value: str) -> str:
+    implemented_sampling_methods = ['upsample', 'downsample', 'smote', 'none']
+    if value.lower() not in implemented_sampling_methods:
+        raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
+                                         f"Choose from options in {implemented_sampling_methods}.")
+    return value.lower()
 
 
 def objective(trial: Trial,
@@ -168,7 +176,7 @@ def main(args):
         test_data,
         positive_class=args.positive_class,
         negative_class=args.negative_class,
-        use_downsampling=args.use_downsampling,
+        resampling_method=args.resampling_method,
         scaler=args.standard_scaler
     )
 
@@ -176,7 +184,7 @@ def main(args):
     data_balance = get_data_balance(train_data[1], val_data[1], test_data[1])
 
     # Setup for hyperparameter optimization
-    study_name = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}_{args.use_downsampling}_{args.model_type.lower()}"
+    study_name = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}_{args.resampling_method}_{args.model_type.lower()}"
 
     study = optuna.create_study(
         direction="maximize",
@@ -242,8 +250,9 @@ if __name__ == "__main__":
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda'",
                         type=validate_ml_model, default="lr")
-    parser.add_argument("--use_downsampling", action="store_true",
-                        help="if set, we downsample the majority class")
+    parser.add_argument("--resampling_method", help="what resampling technique should be used. "
+                                                 "Options: 'downsample', 'upsample', 'smote', 'None'",
+                        type=validate_resampling_method, default=None)
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
