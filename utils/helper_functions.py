@@ -25,6 +25,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
+import xgboost as xgb
 
 from imblearn.over_sampling import ADASYN, SMOTE
 
@@ -339,7 +340,8 @@ def get_ml_model(model: str, params: dict = None):
         "lda": LinearDiscriminantAnalysis,
         "knn": KNeighborsClassifier,
         "lr": LogisticRegression,
-        "xgboost": GradientBoostingClassifier,
+        # "xgboost": GradientBoostingClassifier,
+        "xgboost": xgb.XGBClassifier,
         "qda": QuadraticDiscriminantAnalysis,
         "random_baseline": DummyClassifier
     }
