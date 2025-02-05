@@ -67,7 +67,7 @@ def validate_ml_model(value: str) -> str:
 
 
 def validate_resampling_method(value: str) -> str:
-    implemented_sampling_methods = ['upsample', 'downsample', 'smote', 'none']
+    implemented_sampling_methods = ['upsample', 'downsample', 'smote', 'none', 'adasyn']
     if value.lower() not in implemented_sampling_methods:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {implemented_sampling_methods}.")
@@ -263,8 +263,8 @@ if __name__ == "__main__":
                                              "'knn', 'lr', 'xgboost', 'qda'",
                         type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
-                                                 "Options: 'downsample', 'upsample', 'smote', 'None'",
-                        type=validate_resampling_method, default='upsample')
+                                                 "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
+                        type=validate_resampling_method, default='smote')
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
