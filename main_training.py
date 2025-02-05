@@ -161,11 +161,23 @@ def objective(trial: Trial,
 
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size))
-    results_path = os.path.join(RESULTS_PATH,
+
+    # Create path folder depending on the comparison we are trying to do
+    comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
+
+    results_path_root = os.path.join(RESULTS_PATH,
                                 str(args.sample_frequency),
                                 str(args.window_size),
+                                     comparison,
                                 args.model_type.lower())
-    create_directory(results_path)
+
+
+    # Get two separate folders for best run and optimization history for better overview
+    results_path_best_performance = os.path.join(results_path_root, "best_performance")
+    results_path_history = os.path.join(results_path_root, "history")
+
+    create_directory(results_path_best_performance)
+    create_directory(results_path_history)
 
     ecg_dataset = ECGDataset(target_data_path)
     train_data, val_data, test_data = ecg_dataset.get_data()
@@ -184,7 +196,7 @@ def main(args):
     data_balance = get_data_balance(train_data[1], val_data[1], test_data[1])
 
     # Setup for hyperparameter optimization
-    study_name = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}_{args.resampling_method}_{args.model_type.lower()}"
+    study_name = f"{args.resampling_method}_{args.model_type.lower()}"
 
     study = optuna.create_study(
         direction="maximize",
@@ -207,7 +219,7 @@ def main(args):
     # Evaluate final model
     evaluate_classifier(
         best_model, train_data, val_data, test_data,
-        save_path=results_path,
+        save_path=results_path_best_performance,
         save_name=f"{study_name}_best_performance_results.json",
         verbose=args.verbose)
     
@@ -224,7 +236,7 @@ def main(args):
         ]
     }
     
-    with open(os.path.join(results_path, f"{study_name}_optimization_history.json"), "w") as f:
+    with open(os.path.join(results_path_history, f"{study_name}_optimization_history.json"), "w") as f:
         json.dump(study_stats, f, indent=4)
 
     if args.verbose:
@@ -252,7 +264,7 @@ if __name__ == "__main__":
                         type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'None'",
-                        type=validate_resampling_method, default=None)
+                        type=validate_resampling_method, default='upsample')
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
