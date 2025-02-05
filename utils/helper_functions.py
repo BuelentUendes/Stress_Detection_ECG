@@ -18,6 +18,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn import metrics
 from sklearn.base import BaseEstimator
 from sklearn.utils import resample
+from sklearn.dummy import DummyClassifier
 
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -326,7 +327,8 @@ def get_ml_model(model: str, params: dict = None):
         "knn": {"n_jobs": -1},
         "lr": {"n_jobs": -1},
         "xgboost": {},
-        "qda": {}
+        "qda": {},
+        "random_baseline": {"strategy": "prior"},
     }
 
     # Map model names to their corresponding classes
@@ -338,7 +340,8 @@ def get_ml_model(model: str, params: dict = None):
         "knn": KNeighborsClassifier,
         "lr": LogisticRegression,
         "xgboost": GradientBoostingClassifier,
-        "qda": QuadraticDiscriminantAnalysis
+        "qda": QuadraticDiscriminantAnalysis,
+        "random_baseline": DummyClassifier
     }
 
     if model.lower() not in model_classes:
@@ -394,21 +397,23 @@ def evaluate_classifier(ml_model: BaseEstimator,
     def round_result(value: float) -> float:
         return np.round(value, 4)
 
+    def get_pr_curve(y_true:np.array, y_score: np.array) -> float:
+        pr_auc = metrics.average_precision_score(y_true, y_score)
+        return pr_auc
+
     results = {
         'proportion class 1': get_data_balance(train_data[1], val_data[1], test_data[1]),
-        'train_accuracy': round_result(metrics.accuracy_score(train_data[1], ml_model.predict(train_data[0]))),
         'train_balanced_accuracy': round_result(metrics.balanced_accuracy_score(train_data[1], ml_model.predict(train_data[0]))),
-        'val_accuracy': round_result(metrics.accuracy_score(val_data[1], ml_model.predict(val_data[0]))),
         'val_balanced_accuracy': round_result(metrics.balanced_accuracy_score(val_data[1], ml_model.predict(val_data[0]))),
-        'test_accuracy': round_result(metrics.accuracy_score(test_data[1], ml_model.predict(test_data[0]))),
         'test_balanced_accuracy': round_result(metrics.balanced_accuracy_score(test_data[1], ml_model.predict(test_data[0]))),
     }
 
     # Binary classification
     if len(train_data[1].unique()) == 2:
-        results['train_f1'] = round_result(metrics.f1_score(train_data[1], ml_model.predict(train_data[0])))
-        results['val_f1'] = round_result(metrics.f1_score(val_data[1], ml_model.predict(val_data[0])))
-        results['test_f1'] = round_result(metrics.f1_score(test_data[1], ml_model.predict(test_data[0])))
+        # Add here the PR-recall curve! instead of F1
+        results['train_pr_auc'] = round_result(get_pr_curve(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
+        results['val_pr_auc'] = round_result(get_pr_curve(val_data[1], ml_model.predict_proba(val_data[0])[:, 1]))
+        results['test_pr_auc'] = round_result(get_pr_curve(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
 
         # ROC AUC
         results['train_roc_auc'] = round_result(metrics.roc_auc_score(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
