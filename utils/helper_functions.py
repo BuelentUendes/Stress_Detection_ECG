@@ -23,6 +23,8 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticD
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
 
+from imblearn.over_sampling import ADASYN, SMOTE
+
 
 def create_directory(path: str) -> None:
     """
@@ -209,7 +211,7 @@ def resample_data(data: pd.DataFrame,
         balanced_data = pd.concat([resampled_minority, majority_df])
 
     # Shuffle the final dataset
-    balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
+    balanced_data = balanced_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
 
     # Verify balancing
     class_counts = balanced_data["category"].value_counts()
@@ -245,19 +247,33 @@ def prepare_data(train_data: pd.DataFrame,
 
     # Use resampling if provided
     if resampling_method is not None:
+        # First encode the data before resampling
+        x_train, y_train = encode_data(train_data, positive_class, negative_class)
+        x_val, y_val = encode_data(val_data, positive_class, negative_class)
+        x_test, y_test = encode_data(test_data, positive_class, negative_class)
+        
         if resampling_method in ["downsample", "upsample"]:
             do_downsampling = True if resampling_method == "downsample" else False
             train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
-        elif resampling_method in ["smote"]:
-            raise NotImplementedError("smote is not yet implemented.")
-
-    # Get the columns
-    x_train, y_train = encode_data(train_data, positive_class, negative_class)
-    x_val, y_val = encode_data(val_data, positive_class, negative_class)
-    x_test, y_test = encode_data(test_data, positive_class, negative_class)
+            # Re-encode the resampled data
+            x_train, y_train = encode_data(train_data, positive_class, negative_class)
+        elif resampling_method == "smote":
+            # Apply SMOTE only to training data
+            smote = SMOTE(random_state=42, n_jobs=-1)
+            x_train, y_train = smote.fit_resample(x_train, y_train)
+        elif resampling_method == "adasyn":
+            # Apply ADASYN only to training data
+            adasyn = ADASYN(random_state=42, n_jobs=-1)
+            x_train, y_train = adasyn.fit_resample(x_train, y_train)
+    else:
+        # If no resampling, just encode the data normally
+        x_train, y_train = encode_data(train_data, positive_class, negative_class)
+        x_val, y_val = encode_data(val_data, positive_class, negative_class)
+        x_test, y_test = encode_data(test_data, positive_class, negative_class)
 
     feature_names = list(x_train.columns.values)
 
+    # Apply scaling after resampling if requested
     if scaler is not None:
         assert scaler.lower() in ["min_max", "standard_scaler"], \
             "please set a valid scaler. Options: 'min_max', 'standard_scaler'"
