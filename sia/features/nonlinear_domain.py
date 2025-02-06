@@ -1,7 +1,7 @@
 import warnings
 
 import pandas as pd 
-import neurokit2 as nk 
+import neurokit2 as nk
 
 try:
     import cupy as cp
@@ -58,7 +58,7 @@ def nonlinear_domain(features: tuple[Feature], sampling_rate: int = 1000):
                 result.update({
                     f'sd1': hrv_nonlinear.get("HRV_SD1", 0),
                     f'sd2': hrv_nonlinear.get("HRV_SD2", 0),
-                    f'sd1_sd2': hrv_nonlinear.get("HRV_SD1/SD2", 0),
+                    f'sd1_sd2': hrv_nonlinear.get("HRV_SD1SD2", 0),
                 })
             elif feature == Feature.FRAGMENTATION:
                 hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate=sampling_rate)
@@ -71,7 +71,6 @@ def nonlinear_domain(features: tuple[Feature], sampling_rate: int = 1000):
             elif feature == Feature.RQA:
                 rqa = nk.hrv_rqa(rpeaks, sampling_rate=sampling_rate)
                 rqa = rqa.fillna(0)
-                
                 result.update({
                     f"w": rqa['W'].item(),
                     f"wmax": rqa['WMax'].item(),
