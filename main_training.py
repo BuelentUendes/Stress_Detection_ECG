@@ -14,7 +14,7 @@ import json
 
 from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH
 from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
-    get_data_balance, evaluate_classifier, create_directory, load_yaml_config_file
+    get_data_balance, evaluate_classifier, create_directory, load_yaml_config_file, bootstrap_test_performance
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -200,9 +200,11 @@ def main(args):
     # Get two separate folders for best run and optimization history for better overview
     results_path_best_performance = os.path.join(results_path_root, "best_performance")
     results_path_history = os.path.join(results_path_root, "history")
+    results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
 
     create_directory(results_path_best_performance)
     create_directory(results_path_history)
+    create_directory(results_path_bootstrap_performance)
 
     ecg_dataset = ECGDataset(target_data_path)
     train_data, val_data, test_data = ecg_dataset.get_data()
@@ -253,6 +255,19 @@ def main(args):
         save_name=f"{study_name}_best_performance_results.json",
         verbose=args.verbose)
 
+    if args.do_bootstrapping:
+        final_bootstrapped_results = bootstrap_test_performance(
+            best_model,
+            test_data,
+            args.bootstrap_samples,
+            args.bootstrap_method,
+        )
+        if args.verbose:
+            print(final_bootstrapped_results)
+
+        with open(os.path.join(results_path_bootstrap_performance, f"{study_name}_bootstrapped.json"), "w") as f:
+            json.dump(final_bootstrapped_results, f, indent=4)
+
     if args.do_hyperparameter_tuning:
         # Save study statistics and best parameters
         study_stats = {
@@ -298,14 +313,27 @@ if __name__ == "__main__":
     parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
     parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
+    parser.add_argument("--do_bootstrapping", action="store_true",
+                        help="if set, we use bootstrapping to get uncertainty estimates of the test performance.")
+    parser.add_argument("--bootstrap_samples", help="number of bootstrap samples.",
+                        default=200, type=int)
+    parser.add_argument("--bootstrap_method", help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
+                        default="quantile")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     args = parser.parse_args()
 
     # Set seed for reproducibility
     set_seed(args.seed)
 
+    args.verbose = True
+    args.do_bootstrapping = True
     main(args)
 
     # Useful discussion for the choice of evaluation metrics:
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
+    # Important we use the quantile bootstrap method:
+    # See the link here: https://www.erikdrysdale.com/bca_python/
 
+    #ToDo:
+    # Implement the standard error and the quantile method, save the results.
+    # Implement the BCa method as well.
