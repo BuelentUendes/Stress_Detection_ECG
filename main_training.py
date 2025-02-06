@@ -185,7 +185,8 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
 
 
 def main(args):
-    target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size))
+    target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size),
+                                    str(args.window_shift))
 
     # Create path folder depending on the comparison we are trying to do
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
@@ -193,6 +194,8 @@ def main(args):
     results_path_root = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison,
                                 args.model_type.lower())
 
+    if args.verbose:
+        print(f"We fit the model {MODELS_ABBREVIATION_DICT[args.model_type.lower()]}")
 
     # Get two separate folders for best run and optimization history for better overview
     results_path_best_performance = os.path.join(results_path_root, "best_performance")
@@ -267,17 +270,13 @@ def main(args):
         with open(os.path.join(results_path_history, f"{study_name}_optimization_history.json"), "w") as f:
             json.dump(study_stats, f, indent=4)
 
-    if args.verbose:
-        print(f"Data balance: Class 1: {data_balance}")
-        print(f"We fit the model {MODELS_ABBREVIATION_DICT[args.model_type.lower()]}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="low_physical_activity",
+    parser.add_argument("--negative_class", help="Which category should be 0", default="baseline",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
@@ -286,16 +285,18 @@ if __name__ == "__main__":
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
+    parser.add_argument('--window_shift', type=int, default=10,
+                        help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda'",
-                        type=validate_ml_model, default="xgboost")
+                        type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
-    parser.add_argument("--n_trials", type=int, default=5, help="Number of optimization trials for Optuna")
+    parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     args = parser.parse_args()
