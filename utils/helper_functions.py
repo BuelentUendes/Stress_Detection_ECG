@@ -146,9 +146,9 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
     data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     # Split data into x_data and y_data
-    x = data.drop(columns=["category"])
+    x = data.drop(columns=["category"]).reset_index(drop=True)
     # The target label needs to be an integer
-    y = data["category"].astype(int)
+    y = data["category"].astype(int).reset_index(drop=True)
 
     return x, y
 
@@ -280,6 +280,7 @@ def prepare_data(train_data: pd.DataFrame,
     feature_names = list(x_train.columns.values)
 
     # Apply scaling after resampling if requested
+    # I guess here the idx issue happens
     if scaler is not None:
         assert scaler.lower() in ["min_max", "standard_scaler"], \
             "please set a valid scaler. Options: 'min_max', 'standard_scaler'"
@@ -402,6 +403,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
     def get_pr_curve(y_true:np.array, y_score: np.array) -> float:
         pr_auc = metrics.average_precision_score(y_true, y_score)
         return pr_auc
+    
 
     results = {
         'proportion class 1': get_data_balance(train_data[1], val_data[1], test_data[1]),
@@ -436,6 +438,71 @@ def evaluate_classifier(ml_model: BaseEstimator,
         json.dump(results, f)  # Save results in JSON format
 
     return results
+
+
+def bootstrap_test_performance(model: BaseEstimator, test_data: tuple[np.ndarray, np.ndarray], bootstrap_samples: int) -> dict[str, float]:
+    """
+    Performs bootstrap resampling to estimate model performance metrics and their confidence intervals.
+    
+    This function repeatedly samples the test data with replacement to create bootstrap samples,
+    evaluates the model on each sample, and calculates performance metrics along with their
+    95% confidence intervals.
+    
+    Args:
+        model: Trained classifier model that implements predict_proba and predict methods
+        test_data: tuple of (X_test, y_test) containing:
+            - X_test: array-like of shape (n_samples, n_features)
+            - y_test: array-like of shape (n_samples,) with true labels
+        bootstrap_samples: int, number of bootstrap iterations (default: 1000)
+    
+    Returns:
+        dict: Dictionary containing performance metrics and their confidence intervals:
+            {
+                'roc_auc': {'mean': float, 'ci_lower': float, 'ci_upper': float},
+                'pr_auc': {'mean': float, 'ci_lower': float, 'ci_upper': float},
+                'balanced_accuracy': {'mean': float, 'ci_lower': float, 'ci_upper': float}
+            }
+    """
+    X_test, y_test = test_data
+    n_samples = len(X_test)
+    
+    # Initialize results dictionary
+    results = {
+        'roc_auc': [],
+        'pr_auc': [],
+        'balanced_accuracy': []
+    }
+    
+    for _ in range(bootstrap_samples):
+        # Resample the dataset with replacement
+        indices = np.random.choice(n_samples, size=n_samples, replace=True)
+        X_bootstrap = X_test[indices]
+        y_bootstrap = y_test[indices]
+        
+        # Get predictions
+        y_pred_proba = model.predict_proba(X_bootstrap)[:, 1]
+        y_pred = model.predict(X_bootstrap)
+        
+        # Calculate metrics
+        results['roc_auc'].append(metrics.roc_auc_score(y_bootstrap, y_pred_proba))
+        results['pr_auc'].append(metrics.average_precision_score(y_bootstrap, y_pred_proba))
+        results['balanced_accuracy'].append(metrics.balanced_accuracy_score(y_bootstrap, y_pred))
+    
+    # Calculate confidence intervals and means
+    final_results = {}
+    for metric in results.keys():
+        values = np.array(results[metric])
+        mean_val = np.mean(values)
+        ci_lower = np.percentile(values, 2.5)  # 2.5th percentile for lower bound
+        ci_upper = np.percentile(values, 97.5)  # 97.5th percentile for upper bound
+        
+        final_results[metric] = {
+            'mean': np.round(mean_val, 4),
+            'ci_lower': np.round(ci_lower, 4),
+            'ci_upper': np.round(ci_upper, 4)
+        }
+    
+    return final_results
 
 
 def load_yaml_config_file(path_to_yaml_file: str):
