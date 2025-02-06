@@ -440,7 +440,10 @@ def evaluate_classifier(ml_model: BaseEstimator,
     return results
 
 
-def bootstrap_test_performance(model: BaseEstimator, test_data: tuple[np.ndarray, np.ndarray], bootstrap_samples: int) -> dict[str, float]:
+def bootstrap_test_performance(model: BaseEstimator,
+                               test_data: tuple[np.ndarray, np.ndarray],
+                               bootstrap_samples: int,
+                               bootstrap_method: str) -> dict[str, float]:
     """
     Performs bootstrap resampling to estimate model performance metrics and their confidence intervals.
     
@@ -454,6 +457,7 @@ def bootstrap_test_performance(model: BaseEstimator, test_data: tuple[np.ndarray
             - X_test: array-like of shape (n_samples, n_features)
             - y_test: array-like of shape (n_samples,) with true labels
         bootstrap_samples: int, number of bootstrap iterations (default: 1000)
+        bootstrap_method: str, which method to use for bootstrap samples.
     
     Returns:
         dict: Dictionary containing performance metrics and their confidence intervals:
@@ -493,9 +497,12 @@ def bootstrap_test_performance(model: BaseEstimator, test_data: tuple[np.ndarray
     for metric in results.keys():
         values = np.array(results[metric])
         mean_val = np.mean(values)
-        ci_lower = np.percentile(values, 2.5)  # 2.5th percentile for lower bound
-        ci_upper = np.percentile(values, 97.5)  # 97.5th percentile for upper bound
-        
+        if bootstrap_method == "quantile":
+            ci_lower = np.percentile(values, 2.5)  # 2.5th percentile for lower bound
+            ci_upper = np.percentile(values, 97.5)  # 97.5th percentile for upper bound
+        else:
+            raise NotImplementedError("We have not implemented 'se' and 'BCa'")
+
         final_results[metric] = {
             'mean': np.round(mean_val, 4),
             'ci_lower': np.round(ci_lower, 4),
