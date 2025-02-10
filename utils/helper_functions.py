@@ -8,15 +8,16 @@ from typing import Optional, Tuple, Union, Any
 
 import torch
 from numpy import ndarray
+from optuna import Trial
 from pandas import Series, DataFrame
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from numpy.testing import assert_almost_equal
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn import metrics
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, clone
 from sklearn.utils import resample
 from sklearn.dummy import DummyClassifier
 
@@ -28,6 +29,12 @@ from sklearn.linear_model import LogisticRegression
 import xgboost as xgb
 
 from imblearn.over_sampling import ADASYN, SMOTE
+
+from sklearn.feature_selection import RFE
+from sklearn.model_selection import StratifiedKFold
+import optuna
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import roc_auc_score, balanced_accuracy_score
 
 
 def create_directory(path: str) -> None:
@@ -126,9 +133,24 @@ class ECGDataset:
         val_size_adjusted = self.val_size / (1 - self.test_size)  # Adjust validation size based on remaining data
         train_files, val_files = train_test_split(train_files, test_size=val_size_adjusted)
 
+        # Here we should split the dataset intro train_feature_selection, val_feature_selection
+        train_files_feature_selection, val_files_feature_selection = train_test_split(
+            train_files, test_size=0.2
+        )
+
+        self.train_feature_selection = self._load_data(train_files_feature_selection)
+        self.val_feature_selection = self._load_data(val_files_feature_selection)
+
         self.train_data = self._load_data(train_files)
         self.val_data = self._load_data(val_files)
         self.test_data = self._load_data(test_files)
+
+    def get_feature_selection_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        returns the datasets split for the feature selection process
+        :return:
+        """
+        return self.train_feature_selection, self.val_feature_selection
 
     def get_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
@@ -227,39 +249,53 @@ def resample_data(data: pd.DataFrame,
 
 def prepare_data(train_data: pd.DataFrame,
                  val_data: pd.DataFrame,
-                 test_data: pd.DataFrame,
+                 test_data: Optional[pd.DataFrame] = None,
                  positive_class: Optional[str] = "mental_stress",
                  negative_class: Optional[str] = "baseline",
                  resampling_method: Optional[str] = None,
-                 scaler: StandardScaler = None) -> tuple:
+                 scaler: Optional[str] = None) -> tuple:
     """
-    Prepares the data for scikit-learn models.
-    :param train_data: DataFrame containing the training data
-    :param val_data: DataFrame containing the validation data
-    :param test_data: DataFrame containing the test data
-    :param positive_class: str, which category to be encoded as 1
-    :param negative_class: str, which category to be encoded as 0
-    :param scaler: StandardScaler instance for normalization
-    :param resampling_method: bool, if set, we downsample the majority class. Default False
-    :return: Tuple of (X_train, y_train, X_val, y_val, X_test, y_test)
+    Prepares the data for scikit-learn models. Can handle both 2-way (train/val) and 3-way (train/val/test) splits.
+    
+    Args:
+        train_data: DataFrame containing the training data
+        val_data: DataFrame containing the validation data
+        test_data: Optional DataFrame containing the test data. If None, assumes 2-way split
+        positive_class: str, which category to be encoded as 1
+        negative_class: str, which category to be encoded as 0
+        scaler: StandardScaler instance for normalization
+        resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
+    
+    Returns:
+        If test_data is provided:
+            Tuple of ((X_train, y_train), (X_val, y_val), (X_test, y_test), feature_names)
+        If test_data is None:
+            Tuple of ((X_train, y_train), (X_val, y_val), feature_names)
     """
-
-    # We first handle missing data
+    # Handle missing data for provided datasets
     train_data = handle_missing_data(train_data)
     val_data = handle_missing_data(val_data)
-    test_data = handle_missing_data(test_data)
+    if test_data is not None:
+        test_data = handle_missing_data(test_data)
+
+    # Calculate sd1_sd2 feature
+    train_data["sd1_sd2"] = train_data["sd1"] / train_data["sd2"]
+    val_data["sd1_sd2"] = val_data["sd1"] / val_data["sd2"]
+    if test_data is not None:
+        test_data["sd1_sd2"] = test_data["sd1"] / test_data["sd2"]
 
     # Use resampling if provided
     if resampling_method is not None:
-        # First encode the data before resampling
+        # First encode all available data
         x_train, y_train = encode_data(train_data, positive_class, negative_class)
         x_val, y_val = encode_data(val_data, positive_class, negative_class)
-        x_test, y_test = encode_data(test_data, positive_class, negative_class)
+        if test_data is not None:
+            x_test, y_test = encode_data(test_data, positive_class, negative_class)
         
+        # Apply resampling only to training data
         if resampling_method in ["downsample", "upsample"]:
-            do_downsampling = True if resampling_method == "downsample" else False
+            do_downsampling = resampling_method == "downsample"
             train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
-            # Re-encode the resampled data
             x_train, y_train = encode_data(train_data, positive_class, negative_class)
         elif resampling_method == "smote":
             smote = SMOTE(random_state=42, n_jobs=-1)
@@ -268,28 +304,30 @@ def prepare_data(train_data: pd.DataFrame,
             adasyn = ADASYN(random_state=42, n_jobs=-1)
             x_train, y_train = adasyn.fit_resample(x_train, y_train)
     else:
-        # If no resampling, just encode the data normally
-        # Shuffle the data
-        # Shuffle the final training data
+        # If no resampling, just shuffle and encode the data
         train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
-
         x_train, y_train = encode_data(train_data, positive_class, negative_class)
         x_val, y_val = encode_data(val_data, positive_class, negative_class)
-        x_test, y_test = encode_data(test_data, positive_class, negative_class)
+        if test_data is not None:
+            x_test, y_test = encode_data(test_data, positive_class, negative_class)
 
     feature_names = list(x_train.columns.values)
 
     # Apply scaling after resampling if requested
-    # I guess here the idx issue happens
     if scaler is not None:
         assert scaler.lower() in ["min_max", "standard_scaler"], \
             "please set a valid scaler. Options: 'min_max', 'standard_scaler'"
-        scaler = StandardScaler() if scaler.lower() == "standard_scaler" else MinMaxScaler()
-        x_train = scaler.fit_transform(x_train)  # Fit and transform on training data
-        x_val = scaler.transform(x_val)  # Transform validation data
-        x_test = scaler.transform(x_test)  # Transform test data
+        scaler_obj = StandardScaler() if scaler.lower() == "standard_scaler" else MinMaxScaler()
+        x_train = scaler_obj.fit_transform(x_train)
+        x_val = scaler_obj.transform(x_val)
+        if test_data is not None:
+            x_test = scaler_obj.transform(x_test)
 
-    return (x_train, y_train), (x_val, y_val), (x_test, y_test), feature_names
+    # Return appropriate tuple based on whether test_data was provided
+    if test_data is not None:
+        return (x_train, y_train), (x_val, y_val), (x_test, y_test), feature_names
+    else:
+        return (x_train, y_train), (x_val, y_val), feature_names
 
 
 def normalize_data(train_data: pd.DataFrame) -> tuple:
@@ -524,6 +562,263 @@ def load_yaml_config_file(path_to_yaml_file: str):
         return config
     except FileNotFoundError:
         print("We could not find the yaml file that you specified")
+
+
+class FeatureSelectionPipeline:
+    """
+    Simplified pipeline for feature selection using cross-validation.
+    """
+    # Set the class attributes
+    # Map model names to their corresponding classes
+    model_classes = {
+        "dt": DecisionTreeClassifier,
+        "rf": RandomForestClassifier,
+        "adaboost": AdaBoostClassifier,
+        "lda": LinearDiscriminantAnalysis,
+        "knn": KNeighborsClassifier,
+        "lr": LogisticRegression,
+        # "xgboost": GradientBoostingClassifier,
+        "xgboost": xgb.XGBClassifier,
+        "qda": QuadraticDiscriminantAnalysis,
+        "random_baseline": DummyClassifier
+    }
+
+    def __init__(self, 
+                 base_estimator: BaseEstimator,
+                 n_features_range: list[int],
+                 n_splits: int = 5,
+                 scoring: str = 'roc_auc',
+                 random_state: int = 42):
+        """
+        Initialize the pipeline.
+        
+        Args:
+            base_estimator: Base model for feature selection and final model
+            n_features_range: List of number of features to try
+            n_splits: Number of cross-validation splits
+            scoring: Metric to optimize ('roc_auc' or 'balanced_accuracy')
+            random_state: Random seed
+        """
+        self.base_estimator = base_estimator
+        self.n_features_range = n_features_range
+        self.n_splits = n_splits
+        self.scoring = scoring
+        self.random_state = random_state
+        
+        self.best_features_mask = None
+        self.feature_importance = None
+        self.cv_results = None
+
+    def _objective(
+            self,
+            trial: Trial,
+            train_data: tuple,
+            val_data: tuple,
+            model_type: str,
+            metric: str = "roc_auc",
+        ) -> float:
+        """
+        Objective function for Optuna optimization.
+        Returns validation balanced accuracy as the optimization metric.
+        """
+        # Define hyperparameter search space based on model type
+        if isinstance(self.base_estimator, LogisticRegression):
+            params = {
+                'C': trial.suggest_float('C', 1e-7, 1e2, log=True),
+                'max_iter': 2000,
+                'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
+                'n_jobs': -1,
+            }
+
+        elif isinstance(self.base_estimator, RandomForestClassifier):
+            params = {
+                'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                'max_depth': trial.suggest_int('max_depth', 5, 50),
+                'min_samples_split': trial.suggest_int('min_samples_split', 5, 25),
+                'min_samples_leaf': trial.suggest_int('min_samples_leaf', 5, 25),
+                'class_weight': trial.suggest_categorical('class_weight', ['balanced', 'balanced_subsample', None]),
+                'n_jobs': -1,
+            }
+        elif isinstance(self.base_estimator, xgb.XGBClassifier):
+            params = {
+                'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                'max_depth': trial.suggest_int('max_depth', 3, 8),
+                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+
+                'objective': 'binary:logistic',
+                'eval_metric': 'auc',
+
+                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+
+                'reg_lambda': trial.suggest_float('reg_lambda', 0.01, 1.0),
+                'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 1.0),
+
+                'use_label_encoder': False,
+                'n_jobs': 1
+            }
+        elif isinstance(self.base_estimator, DecisionTreeClassifier):
+            params = {
+                'max_depth': trial.suggest_int('max_depth', 3, 30),
+                'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
+                'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
+                'criterion': trial.suggest_categorical('criterion', ['gini', 'entropy']),
+                'class_weight': trial.suggest_categorical('class_weight', ['balanced', None])
+            }
+        elif isinstance(self.base_estimator, AdaBoostClassifier):
+            params = {
+                'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                'learning_rate': trial.suggest_float('learning_rate', 0.01, 1.0, log=True),
+                'algorithm': trial.suggest_categorical('algorithm', ['SAMME', 'SAMME.R'])
+            }
+        elif isinstance(self.base_estimator, KNeighborsClassifier):
+            params = {
+                'n_neighbors': trial.suggest_int('n_neighbors', 1, 50),
+                'weights': trial.suggest_categorical('weights', ['uniform', 'distance']),
+                'p': trial.suggest_int('p', 1, 2),  # 1 for manhattan_distance, 2 for euclidean_distance
+                'leaf_size': trial.suggest_int('leaf_size', 20, 50),
+                "n_jobs": -1
+            }
+        elif isinstance(self.base_estimator, LinearDiscriminantAnalysis):
+            params = {
+                'solver': trial.suggest_categorical('solver', ['svd', 'lsqr', 'eigen']),
+                'shrinkage': trial.suggest_float('shrinkage', 0.0, 1.0) if trial.suggest_categorical('use_shrinkage',
+                                                                                                     [True,
+                                                                                                      False]) else None,
+                'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
+            }
+        elif isinstance(self.base_estimator, QuadraticDiscriminantAnalysis):
+            params = {
+                'reg_param': trial.suggest_float('reg_param', 0.0, 1.0),
+                'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
+            }
+        elif isinstance(self.base_estimator, DummyClassifier):
+            params = {
+                "strategy": "prior"
+            }
+
+        else:
+            raise ValueError(f"Hyperparameter optimization not implemented for model type: {model_type}")
+
+        # Create and train model
+        model = get_ml_model(model_type, params)
+        model.fit(train_data[0], train_data[1])
+
+        # Evaluate on validation set
+        if metric == "accuracy":
+            val_pred = model.predict(val_data[0])
+            val_score = metrics.balanced_accuracy_score(val_data[1], val_pred)
+        elif metric == "roc_auc":
+            val_score = metrics.roc_auc_score(val_data[1], model.predict_proba(val_data[0])[:, 1])
+
+        return val_score
+
+    # ToDo: Here we will tune some of the initial parameters based on the CV set to get kinda a good warm start
+    # Then we save the inital set of parameters, load if necessary
+    # Then we can sweep over 25-50 features to eliminate half 50-75%
+    # Actually here we can do some bayesian n_trials like 15
+    # Then fit on the proper validation set to hyperparameter tune
+    def find_best_hyperparameter_base_estimator(self):
+
+
+
+
+        raise NotImplementedError
+
+    def fit(self, X: np.ndarray, y: np.ndarray, feature_names: list[str]) -> None:
+        """
+        Fit the feature selection pipeline using cross-validation.
+        """
+        cv = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
+        cv_scores = []
+        feature_importance_scores = np.zeros(X.shape[1])
+        selected_features_count = np.zeros(X.shape[1])
+        
+        # Try each number of features
+        for n_features in self.n_features_range:
+            fold_scores = []
+            
+            # Cross validation
+            #ToDo: Do the right cleaning here!
+            for fold, (train_idx, val_idx) in enumerate(cv.split(X, y)):
+                print(f"we are processing fold: {fold}")
+                X_train, X_val = X[train_idx], X[val_idx]
+                y_train, y_val = y[train_idx], y[val_idx]
+                
+                # Feature selection
+                # Here we should use the best params of the used
+                # rfe = RFE(
+                #     estimator=clone(self.base_estimator),
+                #     n_features_to_select=n_features
+                # )
+
+                rfe = RFE(
+                    estimator=DecisionTreeClassifier(),
+                    n_features_to_select=n_features
+                )
+
+                # Create and fit pipeline
+                pipeline = Pipeline([
+                    ('rfe', rfe),
+                    ('model', clone(self.base_estimator))
+                ])
+                print(f"We are fitting the estimator")
+                pipeline.fit(X_train, y_train)
+                
+                # Score on validation set
+                if self.scoring == 'roc_auc':
+                    score = roc_auc_score(y_val, pipeline.predict_proba(X_val)[:, 1])
+                else:
+                    score = balanced_accuracy_score(y_val, pipeline.predict(X_val))
+                
+                fold_scores.append(score)
+                
+                # Track feature importance
+                feature_importance_scores += rfe.ranking_
+                selected_features_count += rfe.support_
+            
+            cv_scores.append(np.mean(fold_scores))
+        
+        # Find best number of features
+        best_n_features = self.n_features_range[np.argmax(cv_scores)]
+        
+        # Final feature selection with best number of features
+        final_rfe = RFE(
+            estimator=clone(self.base_estimator),
+            n_features_to_select=best_n_features
+        )
+        final_rfe.fit(X, y)
+        
+        # Store results
+        self.best_features_mask = final_rfe.support_
+        self.cv_results = {
+            'cv_scores': cv_scores,
+            'mean_score': np.mean(cv_scores),
+            'std_score': np.std(cv_scores)
+        }
+        self.feature_importance = {
+            name: {
+                'importance_score': score,
+                'selection_frequency': count/self.n_splits
+            }
+            for name, score, count in zip(
+                feature_names,
+                feature_importance_scores / self.n_splits,
+                selected_features_count
+            )
+        }
+    
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """Transform data using selected features."""
+        if self.best_features_mask is None:
+            raise ValueError("Pipeline needs to be fitted first")
+        return X[:, self.best_features_mask]
+    
+    def get_selected_features(self, feature_names: list[str]) -> list[str]:
+        """Get names of selected features."""
+        if self.best_features_mask is None:
+            raise ValueError("Pipeline needs to be fitted first")
+        return [name for name, selected in zip(feature_names, self.best_features_mask) if selected]
 
 
 
