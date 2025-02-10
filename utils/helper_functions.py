@@ -253,7 +253,8 @@ def prepare_data(train_data: pd.DataFrame,
                  positive_class: Optional[str] = "mental_stress",
                  negative_class: Optional[str] = "baseline",
                  resampling_method: Optional[str] = None,
-                 scaler: Optional[str] = None) -> tuple:
+                 scaler: Optional[str] = None,
+                 use_subset: Optional[list[bool]] = None) -> tuple:
     """
     Prepares the data for scikit-learn models. Can handle both 2-way (train/val) and 3-way (train/val/test) splits.
     
@@ -265,6 +266,7 @@ def prepare_data(train_data: pd.DataFrame,
         negative_class: str, which category to be encoded as 0
         scaler: StandardScaler instance for normalization
         resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
+        use_subset: bool, list of bool to indicate which features should be included or not
     
     Returns:
         If test_data is provided:
@@ -289,17 +291,31 @@ def prepare_data(train_data: pd.DataFrame,
         # First encode all available data
         x_train, y_train = encode_data(train_data, positive_class, negative_class)
         x_val, y_val = encode_data(val_data, positive_class, negative_class)
+
         if test_data is not None:
             x_test, y_test = encode_data(test_data, positive_class, negative_class)
-        
+
+        if use_subset is not None:
+            # Ensure the length of use_subset matches the number of features
+            assert len(use_subset) == x_train.shape[1], \
+                f"Length of use_subset ({len(use_subset)}) must match number of features ({x_train.shape[1]})"
+            
+            # Filter features using boolean mask
+            x_train = x_train.iloc[:, use_subset]
+            x_val = x_val.iloc[:, use_subset]
+            if test_data is not None:
+                x_test = x_test.iloc[:, use_subset]
+
         # Apply resampling only to training data
         if resampling_method in ["downsample", "upsample"]:
             do_downsampling = resampling_method == "downsample"
             train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
             x_train, y_train = encode_data(train_data, positive_class, negative_class)
+
         elif resampling_method == "smote":
             smote = SMOTE(random_state=42, n_jobs=-1)
             x_train, y_train = smote.fit_resample(x_train, y_train)
+
         elif resampling_method == "adasyn":
             adasyn = ADASYN(random_state=42, n_jobs=-1)
             x_train, y_train = adasyn.fit_resample(x_train, y_train)
@@ -310,6 +326,17 @@ def prepare_data(train_data: pd.DataFrame,
         x_val, y_val = encode_data(val_data, positive_class, negative_class)
         if test_data is not None:
             x_test, y_test = encode_data(test_data, positive_class, negative_class)
+
+        # Ensure the length of use_subset matches the number of features
+        if use_subset is not None:
+            assert len(use_subset) == x_train.shape[1], \
+                f"Length of use_subset ({len(use_subset)}) must match number of features ({x_train.shape[1]})"
+
+            # Filter features using boolean mask
+            x_train = x_train.iloc[:, use_subset]
+            x_val = x_val.iloc[:, use_subset]
+            if test_data is not None:
+                x_test = x_test.iloc[:, use_subset]
 
     feature_names = list(x_train.columns.values)
 
@@ -441,7 +468,6 @@ def evaluate_classifier(ml_model: BaseEstimator,
     def get_pr_curve(y_true:np.array, y_score: np.array) -> float:
         pr_auc = metrics.average_precision_score(y_true, y_score)
         return pr_auc
-    
 
     results = {
         'proportion class 1': get_data_balance(train_data[1], val_data[1], test_data[1]),
@@ -587,6 +613,7 @@ class FeatureSelectionPipeline:
                  base_estimator: BaseEstimator,
                  n_features_range: list[int],
                  n_splits: int = 5,
+                 n_trials: int = 15,
                  scoring: str = 'roc_auc',
                  random_state: int = 42):
         """
@@ -596,11 +623,13 @@ class FeatureSelectionPipeline:
             base_estimator: Base model for feature selection and final model
             n_features_range: List of number of features to try
             n_splits: Number of cross-validation splits
+            n_trials: Number of trials for the bayesian hyperparameter tuning
             scoring: Metric to optimize ('roc_auc' or 'balanced_accuracy')
             random_state: Random seed
         """
         self.base_estimator = base_estimator
         self.n_features_range = n_features_range
+        self.n_trials = n_trials
         self.n_splits = n_splits
         self.scoring = scoring
         self.random_state = random_state
@@ -625,7 +654,7 @@ class FeatureSelectionPipeline:
         if isinstance(self.base_estimator, LogisticRegression):
             params = {
                 'C': trial.suggest_float('C', 1e-7, 1e2, log=True),
-                'max_iter': 2000,
+                'max_iter': 5000,
                 'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
                 'n_jobs': -1,
             }
@@ -713,113 +742,158 @@ class FeatureSelectionPipeline:
 
         return val_score
 
-    # ToDo: Here we will tune some of the initial parameters based on the CV set to get kinda a good warm start
-    # Then we save the inital set of parameters, load if necessary
-    # Then we can sweep over 25-50 features to eliminate half 50-75%
-    # Actually here we can do some bayesian n_trials like 15
-    # Then fit on the proper validation set to hyperparameter tune
-    def find_best_hyperparameter_base_estimator(self):
-
-
-
-
-        raise NotImplementedError
-
-    def fit(self, X: np.ndarray, y: np.ndarray, feature_names: list[str]) -> None:
+    def find_best_hyperparameter_base_estimator(self,
+                                              train_data: tuple,
+                                              val_data: tuple,
+                                              n_trials: int = 15,
+                                              save_path: Optional[str] = None) -> dict:
         """
-        Fit the feature selection pipeline using cross-validation.
+        Find best hyperparameters for base estimator using Optuna optimization.
+        Results are cached to avoid redundant optimization.
+        
+        Args:
+            train_data: Tuple of (X_train, y_train)
+            val_data: Tuple of (X_val, y_val)
+            n_trials: Number of optimization trials
+            save_path: Path to cache hyperparameters. If None, no caching is used.
+        
+        Returns:
+            dict: Best hyperparameters
         """
-        cv = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
-        cv_scores = []
-        feature_importance_scores = np.zeros(X.shape[1])
-        selected_features_count = np.zeros(X.shape[1])
+        # # Check if cached results exist
+        # if save_path and os.path.exists(save_path):
+        #     with open(save_path, 'r') as f:
+        #         return json.load(f)
+        
+        # Create Optuna study
+        study = optuna.create_study(direction="maximize")
+        
+        # Get model type string from base_estimator class
+        model_type = None
+        for key, cls in self.model_classes.items():
+            if isinstance(self.base_estimator, cls):
+                model_type = key
+                break
+        
+        if model_type is None:
+            raise ValueError("Unknown base estimator type")
+        
+        # Define objective function wrapper
+        def objective(trial):
+            return self._objective(trial, train_data, val_data, model_type, self.scoring)
+        
+        # Run optimization
+        study.optimize(objective, n_trials=n_trials)
+        
+        # Get best parameters
+        best_params = study.best_params
+        
+        # # Cache results if path provided
+        # if save_path:
+        #     os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        #     with open(save_path, 'w') as f:
+        #         json.dump(best_params, f)
+        #
+        return best_params
+
+    def fit(self, 
+            train_data: tuple[np.ndarray, np.ndarray],
+            val_data: tuple[np.ndarray, np.ndarray],
+            feature_names: list[str] = None,
+            save_path: Optional[str] = None) -> None:
+        """
+        Fit the feature selection pipeline using provided train/val sets.
+        
+        Args:
+            train_data: Tuple of (X_train, y_train)
+            val_data: Tuple of (X_val, y_val)
+            feature_names: List of feature names
+            save_path: Path to cache hyperparameters. If None, no saving is done.
+        """
+        X_train, y_train = train_data
+        X_val, y_val = val_data
+        
+        # First find best hyperparameters
+        best_params = self.find_best_hyperparameter_base_estimator(
+            train_data,
+            val_data,
+            n_trials=self.n_trials,
+            save_path=save_path
+        )
+        
+        # Create optimized base estimator
+        optimized_estimator = clone(self.base_estimator).set_params(**best_params)
         
         # Try each number of features
+        scores = []
+        feature_importance_scores = np.zeros(X_train.shape[1])
+        selected_features_count = np.zeros(X_train.shape[1])
+        
         for n_features in self.n_features_range:
-            fold_scores = []
+            print(f"Evaluating {n_features} features")
             
-            # Cross validation
-            #ToDo: Do the right cleaning here!
-            for fold, (train_idx, val_idx) in enumerate(cv.split(X, y)):
-                print(f"we are processing fold: {fold}")
-                X_train, X_val = X[train_idx], X[val_idx]
-                y_train, y_val = y[train_idx], y[val_idx]
-                
-                # Feature selection
-                # Here we should use the best params of the used
-                # rfe = RFE(
-                #     estimator=clone(self.base_estimator),
-                #     n_features_to_select=n_features
-                # )
-
-                rfe = RFE(
-                    estimator=DecisionTreeClassifier(),
-                    n_features_to_select=n_features
-                )
-
-                # Create and fit pipeline
-                pipeline = Pipeline([
-                    ('rfe', rfe),
-                    ('model', clone(self.base_estimator))
-                ])
-                print(f"We are fitting the estimator")
-                pipeline.fit(X_train, y_train)
-                
-                # Score on validation set
-                if self.scoring == 'roc_auc':
-                    score = roc_auc_score(y_val, pipeline.predict_proba(X_val)[:, 1])
-                else:
-                    score = balanced_accuracy_score(y_val, pipeline.predict(X_val))
-                
-                fold_scores.append(score)
-                
-                # Track feature importance
-                feature_importance_scores += rfe.ranking_
-                selected_features_count += rfe.support_
+            # Feature selection using optimized estimator
+            rfe = RFE(
+                estimator=clone(optimized_estimator),
+                n_features_to_select=n_features
+            )
             
-            cv_scores.append(np.mean(fold_scores))
+            # Create and fit pipeline
+            pipeline = Pipeline([
+                ('rfe', rfe),
+                ('model', clone(optimized_estimator))
+            ])
+            print(f"Fitting estimator")
+            pipeline.fit(X_train, y_train)
+            
+            # Score on validation set
+            if self.scoring == 'roc_auc':
+                score = roc_auc_score(y_val, pipeline.predict_proba(X_val)[:, 1])
+            else:
+                score = balanced_accuracy_score(y_val, pipeline.predict(X_val))
+            print(f"The score is {score}")
+            scores.append(score)
+            
+            # Track feature importance
+            feature_importance_scores += rfe.ranking_
+            selected_features_count += rfe.support_
         
         # Find best number of features
-        best_n_features = self.n_features_range[np.argmax(cv_scores)]
+        best_n_features = self.n_features_range[np.argmax(scores)]
         
         # Final feature selection with best number of features
         final_rfe = RFE(
-            estimator=clone(self.base_estimator),
+            estimator=clone(optimized_estimator),
             n_features_to_select=best_n_features
         )
-        final_rfe.fit(X, y)
+        final_rfe.fit(X_train, y_train)
         
         # Store results
         self.best_features_mask = final_rfe.support_
         self.cv_results = {
-            'cv_scores': cv_scores,
-            'mean_score': np.mean(cv_scores),
-            'std_score': np.std(cv_scores)
+            'scores': [float(score) for score in scores],  # Convert numpy floats to Python floats
+            'best_score': float(np.max(scores)),  # Convert numpy float to Python float
+            'best_n_features': int(best_n_features),  # Convert numpy int to Python int
+            'best_params': best_params,
+            'feature_selection_mask': [bool(mask) for mask in self.best_features_mask],  # Convert numpy bools to Python bools
         }
         self.feature_importance = {
-            name: {
-                'importance_score': score,
-                'selection_frequency': count/self.n_splits
+            str(name): {  # Ensure keys are strings
+                'importance_score': float(score),  # Convert numpy float to Python float
+                'selected': bool(count)  # Convert numpy bool to Python bool
             }
             for name, score, count in zip(
                 feature_names,
-                feature_importance_scores / self.n_splits,
+                feature_importance_scores,
                 selected_features_count
             )
         }
-    
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        """Transform data using selected features."""
-        if self.best_features_mask is None:
-            raise ValueError("Pipeline needs to be fitted first")
-        return X[:, self.best_features_mask]
-    
-    def get_selected_features(self, feature_names: list[str]) -> list[str]:
-        """Get names of selected features."""
-        if self.best_features_mask is None:
-            raise ValueError("Pipeline needs to be fitted first")
-        return [name for name, selected in zip(feature_names, self.best_features_mask) if selected]
 
+        with open(os.path.join(save_path, "feature_selection_results.json"), 'w') as f:
+            json.dump(self.cv_results, f, indent=4)  # Save results in JSON format
+
+        with open(os.path.join(save_path, "feature_importance_report.json"), "w") as f:
+            json.dump(self.feature_importance, f, indent=4)
 
 
         
