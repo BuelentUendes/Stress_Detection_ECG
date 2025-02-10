@@ -3,6 +3,9 @@
 import os
 import argparse
 from typing import Optional, Tuple, Union, Any
+import warnings
+warnings.filterwarnings("ignore")
+
 
 import numpy as np
 import optuna
@@ -12,9 +15,12 @@ from sklearn.dummy import DummyClassifier
 from optuna.trial import Trial
 import json
 
+from sklearn.linear_model import LogisticRegression
+
 from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH
 from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
-    get_data_balance, evaluate_classifier, create_directory, load_yaml_config_file, bootstrap_test_performance
+    get_data_balance, evaluate_classifier, create_directory, load_yaml_config_file, FeatureSelectionPipeline, \
+    bootstrap_test_performance
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -197,16 +203,53 @@ def main(args):
     if args.verbose:
         print(f"We fit the model {MODELS_ABBREVIATION_DICT[args.model_type.lower()]}")
 
-    # Get two separate folders for best run and optimization history for better overview
+    # Get separate folders for best run and optimization history for better overview and selected features if selected
     results_path_best_performance = os.path.join(results_path_root, "best_performance")
     results_path_history = os.path.join(results_path_root, "history")
+    results_path_feature_selection = os.path.join(results_path_root, "feature_selection")
     results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
 
     create_directory(results_path_best_performance)
     create_directory(results_path_history)
+    create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
 
     ecg_dataset = ECGDataset(target_data_path)
+
+    if args.use_feature_selection:
+        # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
+        train_data_feature_selection, val_data_feature_selection = ecg_dataset.get_feature_selection_data()
+
+        train_data_feature_selection, val_data_feature_selection, feature_names = prepare_data(
+            train_data_feature_selection,
+            val_data_feature_selection,
+            positive_class=args.positive_class,
+            negative_class=args.negative_class,
+            resampling_method=args.resampling_method,
+            scaler=args.standard_scaler
+        )
+
+        # Create base estimator
+        base_estimator = get_ml_model(args.model_type, {})  # Basic model for feature selection
+
+        # Initialize feature selection pipeline
+        feature_selector = FeatureSelectionPipeline(
+            base_estimator=base_estimator,
+            n_features_range=range(args.min_features, args.max_features + 1),
+            n_splits=args.n_splits,
+            n_trials=10,
+            scoring=args.metric_to_optimize,
+            random_state=args.seed
+        )
+
+        feature_selector.fit(train_data_feature_selection, val_data_feature_selection,
+                             feature_names=feature_names,
+                             save_path=results_path_feature_selection)
+
+        # best_feature_mask has 104 features
+        selected_features = list(feature_selector.best_features_mask)
+
+    # Get the regular datasplit
     train_data, val_data, test_data = ecg_dataset.get_data()
 
     train_data, val_data, test_data, feature_names = prepare_data(
@@ -216,7 +259,8 @@ def main(args):
         positive_class=args.positive_class,
         negative_class=args.negative_class,
         resampling_method=args.resampling_method,
-        scaler=args.standard_scaler
+        scaler=args.standard_scaler,
+        use_subset=selected_features if args.use_feature_selection else None,
     )
 
     # Get the data balance
@@ -252,10 +296,10 @@ def main(args):
     evaluate_classifier(
         best_model, train_data, val_data, test_data,
         save_path=results_path_best_performance,
-        save_name=f"{study_name}_best_performance_results.json",
+        save_name=f"{study_name}_best_performance_results_feature_selection.json" if args.use_feature_selection else f"{study_name}_best_performance_results.json",
         verbose=args.verbose)
 
-    if args.do_bootstrapping:
+    if args.bootstrap_test_results:
         final_bootstrapped_results = bootstrap_test_performance(
             best_model,
             test_data,
@@ -265,7 +309,8 @@ def main(args):
         if args.verbose:
             print(final_bootstrapped_results)
 
-        with open(os.path.join(results_path_bootstrap_performance, f"{study_name}_bootstrapped.json"), "w") as f:
+        save_name = f"{study_name}_bootstrapped_feature_selection.json" if args.use_feature_selection else f"{study_name}_bootstrapped.json"
+        with open(os.path.join(results_path_bootstrap_performance, save_name), "w") as f:
             json.dump(final_bootstrapped_results, f, indent=4)
 
     if args.do_hyperparameter_tuning:
@@ -282,7 +327,8 @@ def main(args):
             ]
         }
 
-        with open(os.path.join(results_path_history, f"{study_name}_optimization_history.json"), "w") as f:
+        save_name = f"{study_name}_optimization_history_feature_selection.json" if args.use_feature_selection else f"{study_name}_optimization_history.json"
+        with open(os.path.join(results_path_history, save_name), "w") as f:
             json.dump(study_stats, f, indent=4)
 
 
@@ -313,27 +359,35 @@ if __name__ == "__main__":
     parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
     parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
-    parser.add_argument("--do_bootstrapping", action="store_true",
+    parser.add_argument("--bootstrap_test_results", action="store_true",
                         help="if set, we use bootstrapping to get uncertainty estimates of the test performance.")
     parser.add_argument("--bootstrap_samples", help="number of bootstrap samples.",
                         default=200, type=int)
     parser.add_argument("--bootstrap_method", help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
                         default="quantile")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
+    parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
+    parser.add_argument("--min_features", type=int, default=25,
+                       help="Minimum number of features to select")
+    parser.add_argument("--max_features", type=int, default=50,
+                       help="Maximum number of features to select")
+    parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
     args = parser.parse_args()
 
     # Set seed for reproducibility
     set_seed(args.seed)
 
-    args.verbose = True
-    args.do_bootstrapping = True
     main(args)
 
     # Useful discussion for the choice of evaluation metrics:
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
-    # Important we use the quantile bootstrap method:
-    # See the link here: https://www.erikdrysdale.com/bca_python/
 
     #ToDo:
-    # Implement the standard error and the quantile method, save the results.
-    # Implement the BCa method as well.
+    # Get the right transformation for each of the features (min-max scaling, log transform if data is heavily skewed)
+    # Feature selection:
+    # First do some initial hyperparameter on the val set (for lets say 10 trials) via Bayesian Hyperparameter tuning
+    # Save the best configs and then we can load it
+    # Run then the finetuning on the selected features
+    # take the best config,
+    # And then do the feature selection on it)
+    # Finetune
