@@ -138,6 +138,7 @@ class ECGDataset:
             train_files, test_size=0.2
         )
 
+
         self.train_feature_selection = self._load_data(train_files_feature_selection)
         self.val_feature_selection = self._load_data(val_files_feature_selection)
 
@@ -313,11 +314,11 @@ def prepare_data(train_data: pd.DataFrame,
             x_train, y_train = encode_data(train_data, positive_class, negative_class)
 
         elif resampling_method == "smote":
-            smote = SMOTE(random_state=42, n_jobs=-1)
+            smote = SMOTE(random_state=42)
             x_train, y_train = smote.fit_resample(x_train, y_train)
 
         elif resampling_method == "adasyn":
-            adasyn = ADASYN(random_state=42, n_jobs=-1)
+            adasyn = ADASYN(random_state=42)
             x_train, y_train = adasyn.fit_resample(x_train, y_train)
     else:
         # If no resampling, just shuffle and encode the data
