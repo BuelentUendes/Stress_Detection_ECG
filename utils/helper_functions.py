@@ -654,7 +654,7 @@ class FeatureSelectionPipeline:
         Objective function for Optuna optimization.
         Returns validation balanced accuracy as the optimization metric.
         """
-        base_score = np.mean(train_data[1])
+
         # Define hyperparameter search space based on model type
         if isinstance(self.base_estimator, LogisticRegression):
             params = {
@@ -678,7 +678,6 @@ class FeatureSelectionPipeline:
                 'n_estimators': trial.suggest_int('n_estimators', 25, 200),
                 'max_depth': trial.suggest_int('max_depth', 3, 8),
                 'learning_rate': trial.suggest_float('learning_rate', 0.0001, 1.0, log=True),
-                'base_score': base_score,
                 'objective': 'binary:logistic',
 
                 'subsample': trial.suggest_float('subsample', 0.5, 0.8),
