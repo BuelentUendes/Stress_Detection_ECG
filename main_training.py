@@ -93,8 +93,6 @@ def objective(trial: Trial,
     Returns validation balanced accuracy as the optimization metric.
     """
 
-    # Base score for the xgboost
-    base_score = np.mean(train_data[1]) # for xgboost
     # Define hyperparameter search space based on model type
     if model_type.lower() == "lr":
         params = {
@@ -117,7 +115,6 @@ def objective(trial: Trial,
             'n_estimators': trial.suggest_int('n_estimators', 25, 200),
             'max_depth': trial.suggest_int('max_depth', 3, 8),
             'learning_rate': trial.suggest_float('learning_rate', 0.0001, 1.0, log=True),
-            'base_score': base_score,
             'objective': 'binary:logistic',
 
             'subsample': trial.suggest_float('subsample', 0.5, 0.8),
