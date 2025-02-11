@@ -32,6 +32,7 @@ MODELS_ABBREVIATION_DICT = {
     "xgboost": "Extreme Gradient Boosting",
     "lda": "Linear discriminant analysis",
     "qda": "Quadratic discriminant analysis",
+    "svm": "Support vector machines",
     "random_baseline": "Random baseline",
 }
 
@@ -66,7 +67,7 @@ def validate_target_metric(value: str) -> str:
 
 
 def validate_ml_model(value: str) -> str:
-    valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'random_baseline']
+    valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'random_baseline', 'svm']
     if value.lower() not in valid_ml_models:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {valid_ml_models}.")
@@ -91,6 +92,9 @@ def objective(trial: Trial,
     Objective function for Optuna optimization.
     Returns validation balanced accuracy as the optimization metric.
     """
+
+    base_score = np.mean(train_data) # for xgboost
+
     # Define hyperparameter search space based on model type
     if model_type.lower() == "lr":
         params = {
@@ -110,21 +114,20 @@ def objective(trial: Trial,
         }
     elif model_type.lower() == "xgboost":
         params = {
-            'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+            'n_estimators': trial.suggest_int('n_estimators', 25, 200),
             'max_depth': trial.suggest_int('max_depth', 3, 8),
-            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
-            
+            'learning_rate': trial.suggest_float('learning_rate', 0.0001, 1.0, log=True),
+            'base_score': base_score,
             'objective': 'binary:logistic',
-            'eval_metric': 'auc',
-            
-            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-            
-            'reg_lambda': trial.suggest_float('reg_lambda', 0.01, 1.0),
-            'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 1.0),
+
+            'subsample': trial.suggest_float('subsample', 0.5, 0.8),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 0.8),
+
+            'reg_lambda': trial.suggest_float('reg_lambda', 0.001, 10.0),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0.001, 10.0),
             
             'use_label_encoder': False,
-            'n_jobs': 1
+            'n_jobs': -1
         }
     elif model_type.lower() == "dt":
         params = {
@@ -151,7 +154,7 @@ def objective(trial: Trial,
     elif model_type.lower() == "lda":
         params = {
             'solver': trial.suggest_categorical('solver', ['svd', 'lsqr', 'eigen']),
-            'shrinkage': trial.suggest_float('shrinkage', 0.0, 1.0) if trial.suggest_categorical('use_shrinkage', [True, False]) else None,
+            'shrinkage': trial.suggest_float('shrinkage', 0.0, 1.0) if trial.suggest_categorical('use_shrinkage', [True,False]) else None,
             'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
         }
     elif model_type.lower() == "qda":
@@ -159,6 +162,13 @@ def objective(trial: Trial,
             'reg_param': trial.suggest_float('reg_param', 0.0, 1.0),
             'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
         }
+
+    elif model_type.lower() == "svm":
+        params = {
+            "C": trial.suggest_float("C", 0.0, 5.0),
+            "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+        }
+
     elif model_type.lower() == "random_baseline":
         params = {
             "strategy": "prior"
@@ -350,7 +360,7 @@ if __name__ == "__main__":
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
-                                             "'knn', 'lr', 'xgboost', 'qda'",
+                                             "'knn', 'lr', 'xgboost', 'qda', 'svm'",
                         type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
@@ -369,7 +379,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
     parser.add_argument("--min_features", type=int, default=25,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=50,
+    parser.add_argument("--max_features", type=int, default=75,
                        help="Maximum number of features to select")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
     args = parser.parse_args()
