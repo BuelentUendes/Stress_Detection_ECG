@@ -89,7 +89,14 @@ def main(args: argparse.Namespace) -> None:
     Args:
         args: Command line arguments containing desired_sampling_rate
     """
-    edf_files = find_all_edf_files(os.path.join(RAW_DATA_PATH, "1000"))
+    if args.data_chunk != -1:
+        edf_files = find_all_edf_files(os.path.join(RAW_DATA_PATH, "1000", f"part_{str(args.data_chunk)}"))
+    else:
+        edf_files = [
+            file
+            for chunk in range(1, 6)
+            for file in find_all_edf_files(os.path.join(RAW_DATA_PATH, "1000", f"part_{str(chunk)}"))
+        ]
     output_path = os.path.join(RAW_DATA_PATH, str(args.desired_sampling_rate))
     create_directory(output_path)
 
@@ -109,7 +116,15 @@ if __name__ == "__main__":
         "--desired_sampling_rate",
         type=int,
         help="Desired sampling rate for downsampling in Hz.",
-        default=128
+        default=256
+    )
+
+    parser.add_argument(
+        "--data_chunk",
+        type=int,
+        default=-1,
+        help="Which data chunk to process. 1 for part 1, 2 for part 2, and -1 for all."
+             "Important: -1 will most likely lead to memory issues."
     )
 
     args = parser.parse_args()
