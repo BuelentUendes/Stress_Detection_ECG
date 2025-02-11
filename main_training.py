@@ -93,8 +93,8 @@ def objective(trial: Trial,
     Returns validation balanced accuracy as the optimization metric.
     """
 
-    base_score = np.mean(train_data) # for xgboost
-
+    # Base score for the xgboost
+    base_score = np.mean(train_data[1]) # for xgboost
     # Define hyperparameter search space based on model type
     if model_type.lower() == "lr":
         params = {
@@ -387,6 +387,7 @@ if __name__ == "__main__":
     # Set seed for reproducibility
     set_seed(args.seed)
 
+    args.do_hyperparameter_tuning = True
     main(args)
 
     # Useful discussion for the choice of evaluation metrics:
