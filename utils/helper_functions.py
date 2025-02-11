@@ -439,7 +439,6 @@ def get_data_balance(train_data:np.array, val_data: np.array, test_data: np.arra
     assert_almost_equal((percentage_train + percentage_val + percentage_test), 1.0, decimal=5)
 
     class_1_train = np.mean(train_data)
-    print(f"class 1 train {class_1_train}")
     class_1_val = np.mean(val_data)
     class_1_test = np.mean(test_data)
 
@@ -655,7 +654,7 @@ class FeatureSelectionPipeline:
         Objective function for Optuna optimization.
         Returns validation balanced accuracy as the optimization metric.
         """
-        base_score = np.mean(train_data)
+        base_score = np.mean(train_data[1])
         # Define hyperparameter search space based on model type
         if isinstance(self.base_estimator, LogisticRegression):
             params = {
