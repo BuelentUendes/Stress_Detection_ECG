@@ -17,6 +17,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn import metrics
+from sklearn.svm import SVC
 from sklearn.base import BaseEstimator, clone
 from sklearn.utils import resample
 from sklearn.dummy import DummyClassifier
@@ -137,7 +138,6 @@ class ECGDataset:
         train_files_feature_selection, val_files_feature_selection = train_test_split(
             train_files, test_size=0.2
         )
-
 
         self.train_feature_selection = self._load_data(train_files_feature_selection)
         self.val_feature_selection = self._load_data(val_files_feature_selection)
@@ -396,6 +396,7 @@ def get_ml_model(model: str, params: dict = None):
         "lr": {"n_jobs": -1},
         "xgboost": {},
         "qda": {},
+        "svm": {"kernel": "rbf", "C": 1.0, "gamma": 0.7},
         "random_baseline": {"strategy": "prior"},
     }
 
@@ -410,6 +411,7 @@ def get_ml_model(model: str, params: dict = None):
         # "xgboost": GradientBoostingClassifier,
         "xgboost": xgb.XGBClassifier,
         "qda": QuadraticDiscriminantAnalysis,
+        "svm": SVC,
         "random_baseline": DummyClassifier
     }
 
@@ -437,6 +439,7 @@ def get_data_balance(train_data:np.array, val_data: np.array, test_data: np.arra
     assert_almost_equal((percentage_train + percentage_val + percentage_test), 1.0, decimal=5)
 
     class_1_train = np.mean(train_data)
+    print(f"class 1 train {class_1_train}")
     class_1_val = np.mean(val_data)
     class_1_test = np.mean(test_data)
 
@@ -607,6 +610,7 @@ class FeatureSelectionPipeline:
         # "xgboost": GradientBoostingClassifier,
         "xgboost": xgb.XGBClassifier,
         "qda": QuadraticDiscriminantAnalysis,
+        "svm": SVC,
         "random_baseline": DummyClassifier
     }
 
@@ -651,6 +655,7 @@ class FeatureSelectionPipeline:
         Objective function for Optuna optimization.
         Returns validation balanced accuracy as the optimization metric.
         """
+        base_score = np.mean(train_data)
         # Define hyperparameter search space based on model type
         if isinstance(self.base_estimator, LogisticRegression):
             params = {
@@ -671,21 +676,20 @@ class FeatureSelectionPipeline:
             }
         elif isinstance(self.base_estimator, xgb.XGBClassifier):
             params = {
-                'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                'n_estimators': trial.suggest_int('n_estimators', 25, 200),
                 'max_depth': trial.suggest_int('max_depth', 3, 8),
-                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
-
+                'learning_rate': trial.suggest_float('learning_rate', 0.0001, 1.0, log=True),
+                'base_score': base_score,
                 'objective': 'binary:logistic',
-                'eval_metric': 'auc',
 
-                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                'subsample': trial.suggest_float('subsample', 0.5, 0.8),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 0.8),
 
-                'reg_lambda': trial.suggest_float('reg_lambda', 0.01, 1.0),
-                'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 1.0),
+                'reg_lambda': trial.suggest_float('reg_lambda', 0.001, 10.0),
+                'reg_alpha': trial.suggest_float('reg_alpha', 0.001, 10.0),
 
                 'use_label_encoder': False,
-                'n_jobs': 1
+                'n_jobs': -1
             }
         elif isinstance(self.base_estimator, DecisionTreeClassifier):
             params = {
@@ -722,6 +726,13 @@ class FeatureSelectionPipeline:
                 'reg_param': trial.suggest_float('reg_param', 0.0, 1.0),
                 'tol': trial.suggest_float('tol', 1e-5, 1e-3, log=True)
             }
+
+        elif isinstance(self.base_estimator, SVC):
+            params = {
+                "C": trial.suggest_float("C", 0.0, 5.0),
+                "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+            }
+
         elif isinstance(self.base_estimator, DummyClassifier):
             params = {
                 "strategy": "prior"
