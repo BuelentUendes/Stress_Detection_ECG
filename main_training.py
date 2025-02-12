@@ -2,25 +2,21 @@
 
 import os
 import argparse
-from typing import Optional, Tuple, Union, Any
+from typing import Any
 import warnings
 warnings.filterwarnings("ignore")
 
-
-import numpy as np
 import optuna
 from sklearn import metrics
-from sklearn.dummy import DummyClassifier
-
 from optuna.trial import Trial
 import json
 
-from sklearn.linear_model import LogisticRegression
-
-from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH, FIGURES_PATH
-from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
-    get_data_balance, evaluate_classifier, create_directory, load_yaml_config_file, FeatureSelectionPipeline, \
+from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
+from utils.helper_functions import set_seed, ECGDataset, prepare_data, get_ml_model, \
+    get_data_balance, evaluate_classifier, create_directory, FeatureSelectionPipeline, \
     bootstrap_test_performance, plot_calibration_curve
+from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
+    validate_resampling_method
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -43,43 +39,6 @@ LABEL_ABBREVIATION_DICT = {
     "moderate_physical_activity": "MPA",
     "low_physical_activity": "LPA",
 }
-
-
-def validate_scaler(value: str) -> str:
-    if value.lower() not in ["standard_scaler", "min_max", None]:
-        raise argparse.ArgumentTypeError(f"Invalid choice: {value}. Choose from 'standard_scaler' or 'min_max'.")
-    return value.lower()
-
-
-def validate_category(value: str) -> str:
-    valid_categories = ['high_physical_activity', 'mental_stress', 'baseline',
-                        'low_physical_activity', 'moderate_physical_activity']
-    if value.lower() not in valid_categories:
-        raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
-                                         f"Choose from options in {valid_categories}.")
-    return value.lower()
-
-
-def validate_target_metric(value: str) -> str:
-    if value.lower() not in ["roc_auc", "accuracy"]:
-        raise argparse.ArgumentTypeError(f"Invalid choice: {value}. Choose from 'standard_scaler' or 'min_max'.")
-    return value.lower()
-
-
-def validate_ml_model(value: str) -> str:
-    valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'random_baseline', 'svm']
-    if value.lower() not in valid_ml_models:
-        raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
-                                         f"Choose from options in {valid_ml_models}.")
-    return value.lower()
-
-
-def validate_resampling_method(value: str) -> str:
-    implemented_sampling_methods = ['upsample', 'downsample', 'smote', 'none', 'adasyn']
-    if value.lower() not in implemented_sampling_methods:
-        raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
-                                         f"Choose from options in {implemented_sampling_methods}.")
-    return value.lower()
 
 
 def objective(trial: Trial,
