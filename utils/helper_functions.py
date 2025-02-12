@@ -12,6 +12,9 @@ from optuna import Trial
 from pandas import Series, DataFrame
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
+
 from numpy.testing import assert_almost_equal
 import pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
@@ -21,6 +24,7 @@ from sklearn.svm import SVC
 from sklearn.base import BaseEstimator, clone
 from sklearn.utils import resample
 from sklearn.dummy import DummyClassifier
+from sklearn.calibration import calibration_curve
 
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -657,9 +661,16 @@ class FeatureSelectionPipeline:
 
         # Define hyperparameter search space based on model type
         if isinstance(self.base_estimator, LogisticRegression):
+            # params = {
+            #     'C': trial.suggest_float('C', 1e-7, 1e2, log=True),
+            #     'max_iter': 5000,
+            #     'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
+            #     'n_jobs': -1,
+            # }
             params = {
-                'C': trial.suggest_float('C', 1e-7, 1e2, log=True),
-                'max_iter': 5000,
+                'C': trial.suggest_float('C', 0.01, 1, log=True),
+                'penalty': "l2",
+                'max_iter': 2000,
                 'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
                 'n_jobs': -1,
             }
@@ -906,4 +917,43 @@ class FeatureSelectionPipeline:
             json.dump(self.feature_importance, f, indent=4)
 
 
+def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,  bin_strategy: str,
+                           save_path: str ):
+    """
+    Code adapted from: https://endtoenddatascience.com/chapter11-machine-learning-calibration
+    Produces a calibration plot and saves it locally. The raw data behind the plot is also written locally.
+    :param y_test: y_test series
+    :param predictions: predictions series
+    :param n_bins: number of bins for the predictions
+    :param bin_strategy: uniform - all bins have the same width; quantile - bins have the same number of observations
+    :save_path: save_path for the figure
+    """
+    try:
+        prob_true, prob_pred = calibration_curve(y_test, predictions, n_bins=n_bins, strategy=bin_strategy)
+
+        calibration_df = pd.DataFrame({'prob_true': prob_true, 'prob_pred': prob_pred})
+        calibration_df["difference"] = np.abs(prob_true - prob_pred)
+        ece = np.mean(calibration_df["difference"].values)
+
+        fig, ax = plt.subplots()
+        plt.plot(prob_pred, prob_true, marker='o', linewidth=1, label=f'model ece: {np.round(ece, 4)}')
+        line = mlines.Line2D([0, 1], [0, 1], color='black', linestyle="--", label="perfect calibration")
+        transform = ax.transAxes
+        line.set_transform(transform)
+        ax.add_line(line)
+        plt.xlim(0, 1)
+        plt.ylim(0, 1)
+        plt.xticks(np.arange(0, 1.1, 0.1))
+        plt.yticks(np.arange(0, 1.1, 0.1))
+        ax.set_xlabel('Predicted Probability')
+        ax.set_ylabel('True Probability in Each Bin')
+        plt.legend()
+        plt.savefig(os.path.join(save_path, f'{bin_strategy}_{n_bins}_calibration_plot.png'), dpi=400, format="png")
+        plt.clf()
+
+        print(f"The ECE is {ece}")
+        calibration_df.to_csv(os.path.join(save_path,
+                                           f'{bin_strategy}_{n_bins}_calibration_summary.csv'), index=False)
+    except Exception as e:
+        print(e)
         
