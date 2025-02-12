@@ -17,10 +17,10 @@ import json
 
 from sklearn.linear_model import LogisticRegression
 
-from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH
+from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH, FIGURES_PATH
 from utils.helper_functions import set_seed, get_data_folders, ECGDataset, encode_data, prepare_data, get_ml_model, \
     get_data_balance, evaluate_classifier, create_directory, load_yaml_config_file, FeatureSelectionPipeline, \
-    bootstrap_test_performance
+    bootstrap_test_performance, plot_calibration_curve
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -96,7 +96,8 @@ def objective(trial: Trial,
     # Define hyperparameter search space based on model type
     if model_type.lower() == "lr":
         params = {
-            'C': trial.suggest_float('C', 1e-7, 1e2, log=True),
+            'C': trial.suggest_float('C', 0.01, 1, log=True),
+            'penalty': "l2",
             'max_iter': 2000,
             'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
             'n_jobs': -1,
@@ -338,6 +339,14 @@ def main(args):
         with open(os.path.join(results_path_history, save_name), "w") as f:
             json.dump(study_stats, f, indent=4)
 
+    if args.add_calibration_plots:
+        figures_path_root = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison,
+                                         args.model_type.lower())
+        create_directory(figures_path_root)
+        # Get class 1 probability
+        y_pred = best_model.predict_proba(test_data[0])[:, 1]
+        plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy, figures_path_root)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -374,17 +383,23 @@ if __name__ == "__main__":
                         default="quantile")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
-    parser.add_argument("--min_features", type=int, default=25,
+    parser.add_argument("--min_features", type=int, default=5,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=75,
+    parser.add_argument("--max_features", type=int, default=10,
                        help="Maximum number of features to select")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
+
+    parser.add_argument("--add_calibration_plots", action="store_true", help="If set, we will plot calibration plots")
+    parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
+                        default=10, type=int)
+    parser.add_argument("--bin_strategy", help="what binning strategy to use",
+                        default="uniform", choices=("uniform", "quantile")
+                        )
     args = parser.parse_args()
 
     # Set seed for reproducibility
     set_seed(args.seed)
 
-    args.do_hyperparameter_tuning = True
     main(args)
 
     # Useful discussion for the choice of evaluation metrics:
