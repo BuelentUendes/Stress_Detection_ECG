@@ -35,8 +35,7 @@ def write_csv(path: str) -> Callable[[str, Union[Dataset, IterableDataset]], Non
             filename = number_match.group(1)
 
         location.parent.mkdir(parents=True, exist_ok=True)
-        # Ensure the file is saved with .csv.gz extension
-        output_path = location.parent / f"{filename}.csv.gz"
-        ds.to_csv(output_path, compression="gzip")
+        output_path = location.parent / f"{filename}.csv"
+        ds.to_csv(output_path)
         warnings.filterwarnings("default")
     return inner
