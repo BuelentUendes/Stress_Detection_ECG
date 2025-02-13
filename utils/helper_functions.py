@@ -7,6 +7,7 @@ import yaml
 from typing import Optional, Tuple, Union, Any
 
 import torch
+from torchmetrics.functional.classification import binary_calibration_error
 from numpy import ndarray
 from optuna import Trial
 from pandas import Series, DataFrame
@@ -931,12 +932,15 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,
     try:
         prob_true, prob_pred = calibration_curve(y_test, predictions, n_bins=n_bins, strategy=bin_strategy)
 
+        ece = binary_calibration_error(
+            torch.from_numpy(predictions), torch.from_numpy(np.asarray(y_test)), n_bins=n_bins, norm="l1"
+        )
+
         calibration_df = pd.DataFrame({'prob_true': prob_true, 'prob_pred': prob_pred})
-        calibration_df["difference"] = np.abs(prob_true - prob_pred)
-        ece = np.mean(calibration_df["difference"].values)
+        calibration_df["ece"] = ece.item()
 
         fig, ax = plt.subplots()
-        plt.plot(prob_pred, prob_true, marker='o', linewidth=1, label=f'model ece: {np.round(ece, 4)}')
+        plt.plot(prob_pred, prob_true, marker='o', linewidth=1, label=f'model ECE: {np.round(ece, 4)}')
         line = mlines.Line2D([0, 1], [0, 1], color='black', linestyle="--", label="perfect calibration")
         transform = ax.transAxes
         line.set_transform(transform)
