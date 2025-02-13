@@ -850,8 +850,14 @@ class FeatureSelectionPipeline:
         scores = []
         feature_importance_scores = np.zeros(X_train.shape[1])
         selected_features_count = np.zeros(X_train.shape[1])
-        
+
+        history_feature_selection = {
+            str(name): 0 for name in feature_names
+        }
+
+        counter = 0
         for n_features in self.n_features_range:
+            counter += 1
             print(f"Evaluating {n_features} features")
             
             # Feature selection using optimized estimator
@@ -879,7 +885,13 @@ class FeatureSelectionPipeline:
             # Track feature importance
             feature_importance_scores += rfe.ranking_
             selected_features_count += rfe.support_
-        
+
+            for idx, (key, value) in enumerate(history_feature_selection.items()):
+                history_feature_selection[key] += bool(selected_features_count[idx])
+
+        for key, value in history_feature_selection.items():
+            history_feature_selection[key] = np.round((value / counter) * 100, 4)
+
         # Find best number of features
         best_n_features = self.n_features_range[np.argmax(scores)]
         
@@ -917,6 +929,8 @@ class FeatureSelectionPipeline:
         with open(os.path.join(save_path, "feature_importance_report.json"), "w") as f:
             json.dump(self.feature_importance, f, indent=4)
 
+        with open(os.path.join(save_path, "feature_importance_total_selected.json"), "w") as f:
+            json.dump(history_feature_selection, f, indent=4)
 
 def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,  bin_strategy: str,
                            save_path: str ):
