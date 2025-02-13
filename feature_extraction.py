@@ -32,7 +32,7 @@ def main(args):
                                str(args.window_shift))
     create_directory(output_path)
 
-    input_file = str(args.participant_number) + ".csv" if args.participant_number != -1 else "*.csv"
+    input_file = str(args.participant_number) + ".parquet" if args.participant_number != -1 else "*.parquet"
     print(f"we are processing {input_file}" if args.participant_number != -1 else f"we are processing all files")
 
     Segmenter() \
@@ -57,7 +57,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline for extracting features of the cleaned ECG data")
-    parser.add_argument("--sample_frequency", type=int, default=1000, help="Sampling rate used for the dataset")
+    parser.add_argument("--sample_frequency", type=int, default=512, help="Sampling rate used for the dataset")
     parser.add_argument("--window_size", type=int, default=60, help="How many seconds we consider")
     parser.add_argument("--window_shift", type=float, default=10,
                         help="How much shift in seconds between consecutive windows.")
