@@ -28,13 +28,15 @@ def write_csv(path: str) -> Callable[[str, Union[Dataset, IterableDataset]], Non
         if stem == '*':
             filename = filename
         else:
-            match = re.findall(stem, filename)
-            if len(match) == 0:
-                raise ValueError('No match found', stem, filename, path)
-            else:
-                filename = match[0]
+            # Extract the number part from the original filename
+            number_match = re.search(r'(\d{5})', filename)
+            if not number_match:
+                raise ValueError(f'No 5-digit number found in filename: {filename}')
+            filename = number_match.group(1)
 
         location.parent.mkdir(parents=True, exist_ok=True)
-        ds.to_csv(location.with_stem(filename))
+        # Ensure the file is saved with .csv.gz extension
+        output_path = location.parent / f"{filename}.csv.gz"
+        ds.to_csv(output_path, compression="gzip")
         warnings.filterwarnings("default")
     return inner
