@@ -6,6 +6,8 @@ from typing import Optional, Tuple, Union, Any
 import warnings
 warnings.filterwarnings("ignore")
 
+import torch
+
 from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH, FIGURES_PATH
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method
@@ -67,7 +69,7 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
         try:
             # Load calibration data
             cal_df = pd.read_csv(model_cal_path)
-            ece = np.mean(cal_df["difference"].values)
+            ece = cal_df["ece"][0]
 
             # Plot calibration curve
             plt.plot(
