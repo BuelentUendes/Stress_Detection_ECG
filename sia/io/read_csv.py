@@ -8,7 +8,7 @@ from typing import Union, Tuple, Callable, Iterator
 
 def read_csv(path: str, columns: Union[None, Tuple[str]] = None) -> Callable[[Union[None, Tuple[str]]], Iterator[Union[Dataset, IterableDataset]]]:
     """Read a CSV file.
-    
+
     Parameters
     ----------
     path : str
@@ -31,11 +31,17 @@ def read_csv(path: str, columns: Union[None, Tuple[str]] = None) -> Callable[[Un
                 yield from read_csv(file, columns)()
         else:
             _path = files[0]
+
             ds = load_dataset(
-                "csv", 
+                "parquet",
                 data_files=_path,
-                usecols=columns
             )
+
+            # Filter columns if specified
+            if columns is not None:
+                ds = ds.select_columns(columns)
+
+                # I want to only use the columns specified here
             yield _path, ds['train']
         warnings.filterwarnings("default")
     return inner
