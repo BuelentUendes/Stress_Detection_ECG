@@ -35,7 +35,7 @@ def write_csv(path: str) -> Callable[[str, Union[Dataset, IterableDataset]], Non
             filename = number_match.group(1)
 
         location.parent.mkdir(parents=True, exist_ok=True)
-        output_path = location.parent / f"{filename}.csv"
-        ds.to_csv(output_path)
+        output_path_pq = location.parent / f"{filename}.parquet"
+        ds.to_parquet(output_path_pq)
         warnings.filterwarnings("default")
     return inner
