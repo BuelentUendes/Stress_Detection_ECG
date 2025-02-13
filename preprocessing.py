@@ -15,9 +15,7 @@ from utils.helper_functions import create_directory
 
 def main(args):
 
-    if args.data_chunk == -1:
-        input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency))
-    elif args.data_chunk == 1:
+    if args.data_chunk == 1:
         input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_1")
     elif args.data_chunk == 2:
         input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_2")
@@ -35,7 +33,7 @@ def main(args):
     Preprocessing(num_proc=args.number_processors) \
         .data(
             read_edf(
-                os.path.join(input_path, '*.edf'),
+                os.path.join(input_path, '30100_LAB_Conditions_ECG.edf'),
                 Metadata(meta_path).on_regex(r'[0-9]{5}'),
                 sampling_rate=args.sample_frequency,
             )
@@ -47,13 +45,13 @@ def main(args):
             'high_physical_activity': ['Treadmill1', 'Treadmill2', 'Treadmill3', 'Treadmill4', 'Walking_fast_pace',
                                        'Cycling', 'stairs_up_and_down'],
             'moderate_physical_activity': ['Walking_own_pace', 'Dishes', 'Vacuum'],
-            'low_physical_activity': ['Standing', 'Recov_standing', 'Lying_supine']     # Updated low physical activity
+            'low_physical_activity': ['Standing', 'Lying_supine', 'Recov_standing']     # Updated low physical activity
         })) \
         .filter(lambda category: [_category != None for _category in category]) \
         .process(neurokit(sampling_rate=args.sample_frequency, method=args.method)) \
         .filter(lambda label: [_label != "Lying_supine" for _label in label]) \
         .filter(lambda ECG_Quality: [quality > .25 for quality in ECG_Quality]) \
-        .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv')))
+        .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv.')))
 
 
 if __name__ == "__main__":
@@ -62,7 +60,7 @@ if __name__ == "__main__":
                         help="Which sample frequency to use. Original is 1,000 Hz."
                              "Note: We can have other sample frequencies, "
                              "but then one needs to use the downsample script first",
-                        default=128)
+                        default=1000)
     parser.add_argument("--method", type=str, help="which method to choose for preprocessing"
                                                    "Choices: 'neurokit', 'engzeemod2012', 'elgendi2010', "
                                                    "'hamilton2002', 'pantompkins1985'",
@@ -70,8 +68,7 @@ if __name__ == "__main__":
     parser.add_argument("--number_processors", type=int, default=1, help="If set to -1, it uses all available")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--data_chunk", type=int, default=1,
-                        help="Which data chunk to process. 1 for part 1, 2 for part 2, and -1 for all."
-                             "Important: -1 will most likely lead to memory issues.")
+                        help="Which data chunk to process. 1 for part 1, 2 for part 2 etc.")
     args = parser.parse_args()
 
     if args.number_processors == -1:
