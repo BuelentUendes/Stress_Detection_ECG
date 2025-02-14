@@ -42,6 +42,8 @@ import optuna
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import roc_auc_score, balanced_accuracy_score
 
+import shap
+
 
 def create_directory(path: str) -> None:
     """
@@ -662,12 +664,7 @@ class FeatureSelectionPipeline:
 
         # Define hyperparameter search space based on model type
         if isinstance(self.base_estimator, LogisticRegression):
-            # params = {
-            #     'C': trial.suggest_float('C', 1e-7, 1e2, log=True),
-            #     'max_iter': 5000,
-            #     'class_weight': trial.suggest_categorical('class_weight', ['balanced', None]),
-            #     'n_jobs': -1,
-            # }
+
             params = {
                 'C': trial.suggest_float('C', 0.01, 1, log=True),
                 'penalty': "l2",
@@ -932,6 +929,7 @@ class FeatureSelectionPipeline:
         with open(os.path.join(save_path, "feature_importance_total_selected.json"), "w") as f:
             json.dump(history_feature_selection, f, indent=4)
 
+
 def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,  bin_strategy: str,
                            save_path: str ):
     """
@@ -974,4 +972,37 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,
                                            f'{bin_strategy}_{n_bins}_calibration_summary.csv'), index=False)
     except Exception as e:
         print(e)
-        
+
+
+def min_max_scaling(values):
+    max_value = max(values)
+    min_value = min(values)
+
+    return [
+        (value - min_value)/(max_value - min_value) for value in values
+    ]
+
+
+def get_feature_importance_model(model, feature_names, normalize_values=True):
+
+    if isinstance(model, LogisticRegression):
+        feature_coefficients = model.coef_[0]
+
+        #Normalize it
+        if normalize_values:
+            feature_coefficients = min_max_scaling(feature_coefficients)
+
+        feature_importance_coeff = {
+            name: coeff for name, coeff in zip(
+                feature_names, feature_coefficients
+            )
+        }
+    # Now we will sort the values according to absolute value from high to low
+        sorted_feature_importance_coeff = sorted(
+            feature_importance_coeff.items(), key=lambda x: abs(x[1]), reverse=True
+        )
+
+        return sorted_feature_importance_coeff
+
+    else:
+        return None
