@@ -10,11 +10,13 @@ import optuna
 from sklearn import metrics
 from optuna.trial import Trial
 import json
+import shap
+import matplotlib.pyplot as plt
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
 from utils.helper_functions import set_seed, ECGDataset, prepare_data, get_ml_model, \
     get_data_balance, evaluate_classifier, create_directory, FeatureSelectionPipeline, \
-    bootstrap_test_performance, plot_calibration_curve
+    bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method
 
@@ -157,6 +159,7 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
         return None
 
 
+
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size),
                                     str(args.window_shift))
@@ -176,10 +179,15 @@ def main(args):
     results_path_feature_selection = os.path.join(results_path_root, "feature_selection")
     results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
 
+    # Figures path
+    figures_path_root = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison,
+                                     args.model_type.lower())
+
     create_directory(results_path_best_performance)
     create_directory(results_path_history)
     create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
+    create_directory(figures_path_root)
 
     ecg_dataset = ECGDataset(target_data_path)
 
@@ -294,17 +302,32 @@ def main(args):
             ]
         }
 
-        save_name = f"{study_name}_optimization_history_feature_selection.json" if args.use_feature_selection else f"{study_name}_optimization_history.json"
+        save_name = f"{study_name}_optimization_history_feature_selection.json" \
+            if args.use_feature_selection else f"{study_name}_optimization_history.json"
         with open(os.path.join(results_path_history, save_name), "w") as f:
             json.dump(study_stats, f, indent=4)
 
     if args.add_calibration_plots:
-        figures_path_root = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison,
-                                         args.model_type.lower())
-        create_directory(figures_path_root)
         # Get class 1 probability
         y_pred = best_model.predict_proba(test_data[0])[:, 1]
         plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy, figures_path_root)
+
+    # Get the feature importance:
+    get_feature_importance_model(best_model, feature_names)
+
+    # Get the shap values
+    explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
+    print(f"We are getting the explanations")
+    shap_values = explainer(test_data[0])
+
+    # Create and save the beeswarm plot
+    plt.figure(figsize=(12, 8))
+    shap.plots.beeswarm(shap_values, show=False)
+    plt.tight_layout()
+    plt.savefig(os.path.join(figures_path_root, f"{study_name}_shap_beeswarm.png"), 
+                dpi=500,
+                bbox_inches='tight')
+    plt.close()
 
 
 if __name__ == "__main__":
@@ -332,7 +355,7 @@ if __name__ == "__main__":
                         type=validate_resampling_method, default=None)
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
-    parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
+    parser.add_argument("--n_trials", type=int, default=5, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
     parser.add_argument("--bootstrap_test_results", action="store_true",
                         help="if set, we use bootstrapping to get uncertainty estimates of the test performance.")
@@ -342,9 +365,9 @@ if __name__ == "__main__":
                         default="quantile")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
-    parser.add_argument("--min_features", type=int, default=5,
+    parser.add_argument("--min_features", type=int, default=50,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=10,
+    parser.add_argument("--max_features", type=int, default=60,
                        help="Maximum number of features to select")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
 
@@ -356,6 +379,7 @@ if __name__ == "__main__":
                         )
     args = parser.parse_args()
 
+    args.verbose = True
     # Set seed for reproducibility
     set_seed(args.seed)
 
