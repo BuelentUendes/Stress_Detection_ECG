@@ -313,10 +313,13 @@ def main(args):
         plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy, figures_path_root)
 
     # Get the feature importance:
+    # Getting the feature names in a better format
+    feature_names = [name.replace("_", " ") for name in feature_names]
+
     get_feature_importance_model(best_model, feature_names)
 
     # Get the shap values
-    explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names.replace("_", " "))
+    explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
     print(f"We are getting the explanations")
     shap_values = explainer(test_data[0])
 
