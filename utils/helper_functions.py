@@ -128,16 +128,19 @@ class ECGDataset:
         combined_df = pd.concat(dataframes, ignore_index=True)  # Concatenate all DataFrames
         return combined_df  # Return the combined DataFrame
 
-    def plot_histogram(self, column: str,
-                        x_label: Optional[str] = None,
-                        save_path: Optional[str] = None,
-                        save_name: Optional[str] = None) -> None:
+    def plot_histogram(self,
+                       column: str,
+                       x_label: Optional[str] = None,
+                       use_density: Optional[bool] = True,
+                       save_path: Optional[str] = None,
+                       save_name: Optional[str] = None) -> None:
         """
         Plots a histogram of the specified column, separated by category.
         
         Args:
             column: Name of the column to plot (e.g., 'hr_mean')
             x_label: str: label for the x-axis of the histogram
+            use_density: bool: if set, we normalize the data and and the pdf is then shown
             save_path: Optional path to save the plot. If None, plot is displayed.
             save_name: Optional: name of the resulting plot
         """
@@ -160,15 +163,15 @@ class ECGDataset:
             category_data = self.total_data[self.total_data['category'] == category][column]
             if not category_data.empty:
                 plt.hist(category_data, 
-                        bins=50,
+                        bins=100,
                         alpha=0.6,
                         color=color,
                         label=category.replace('_', ' ').title(),
-                        density=True)
+                        density=use_density)
 
         # Customize the plot
         plt.xlabel(f'{column.replace("_", " ")}' if x_label is None else x_label)
-        plt.ylabel('Count')
+        plt.ylabel('Probability Density') if use_density else plt.ylabel('Count')
         plt.legend()
         
         # Save or show the plot
@@ -960,6 +963,9 @@ class FeatureSelectionPipeline:
 
         for key, value in history_feature_selection.items():
             history_feature_selection[key] = np.round((value / counter) * 100, 4)
+
+        # We sort the values from most often chosen to least often
+        history_feature_selection = sorted(history_feature_selection.items(), key=lambda x: x[1], reverse=True)
 
         # Find best number of features
         best_n_features = self.n_features_range[np.argmax(scores)]
