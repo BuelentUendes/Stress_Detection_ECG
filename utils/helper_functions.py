@@ -128,6 +128,61 @@ class ECGDataset:
         combined_df = pd.concat(dataframes, ignore_index=True)  # Concatenate all DataFrames
         return combined_df  # Return the combined DataFrame
 
+    def plot_histogram(self, column: str,
+                        x_label: Optional[str] = None,
+                        save_path: Optional[str] = None,
+                        save_name: Optional[str] = None) -> None:
+        """
+        Plots a histogram of the specified column, separated by category.
+        
+        Args:
+            column: Name of the column to plot (e.g., 'hr_mean')
+            x_label: str: label for the x-axis of the histogram
+            save_path: Optional path to save the plot. If None, plot is displayed.
+            save_name: Optional: name of the resulting plot
+        """
+        plt.figure(figsize=(10, 6))
+        
+        # Define colors and categories
+        colors = {
+            'black': '#000000',
+            'orange': '#E69F00',
+            'baseline': '#56B4E9',
+            'low_physical_activity': '#009E73',
+            'moderate_physical_activity': '#F0E442',
+            'blue': '#0072B2',
+            'mental_stress': '#D55E00',
+            'high_physical_activity': '#CC79A7'
+        }
+
+        # Plot histograms for each category
+        for category, color in colors.items():
+            category_data = self.total_data[self.total_data['category'] == category][column]
+            if not category_data.empty:
+                plt.hist(category_data, 
+                        bins=50,
+                        alpha=0.6,
+                        color=color,
+                        label=category.replace('_', ' ').title(),
+                        density=True)
+
+        # Customize the plot
+        plt.xlabel(f'{column.replace("_", " ")}' if x_label is None else x_label)
+        plt.ylabel('Count')
+        plt.legend()
+        
+        # Save or show the plot
+        if save_path:
+            if save_name is not None:
+                save_path = os.path.join(save_path, f"{save_name}.png")
+            else:
+                save_path = os.path.join(save_path, f"histogram_{column}.png")
+
+            plt.savefig(save_path, dpi=500, bbox_inches='tight')
+            plt.close()
+        else:
+            plt.show()
+
     def _split_data(self) -> tuple:
         """
         Splits the dataset into train, validation, and test sets based on participant CSV files.
@@ -137,6 +192,23 @@ class ECGDataset:
         """
         # Use the filenames as participant identifiers
         participant_files = self.data_folders
+
+        # Get the total files
+        self.total_data = self._load_data(participant_files)
+
+        self.number_mental_stress = self.total_data[self.total_data["category"] == "mental_stress"].count(axis=1)
+        self.number_baseline = self.total_data[self.total_data["category"] == "baseline"].count(axis=1)
+        self.number_lpa = self.total_data[self.total_data["category"] == "low_physical_activity"].count(axis=1)
+        self.number_mpa = self.total_data[self.total_data["category"] == "moderate_physical_activity"].count(axis=1)
+        self.number_hpa = self.total_data[self.total_data["category"] == "high_physical_activity"].count(axis=1)
+
+        # Get the percentages:
+        self.mental_stress_per = len(self.number_mental_stress) / len(self.total_data)
+        self.baseline_per = len(self.number_baseline) / len(self.total_data)
+        self.lpa_per = len(self.number_lpa) / len(self.total_data)
+        self.mpa_per = len(self.number_mpa) / len(self.total_data)
+        self.hpa_per = len(self.number_hpa) / len(self.total_data)
+
         train_files, test_files = train_test_split(participant_files, test_size=self.test_size)
         val_size_adjusted = self.val_size / (1 - self.test_size)  # Adjust validation size based on remaining data
         train_files, val_files = train_test_split(train_files, test_size=val_size_adjusted)
