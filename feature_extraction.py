@@ -42,6 +42,7 @@ def main(args):
             .skip(lambda label: len(set(label)) > 1) \
             .skip(lambda ECG_R_Peaks: len(extract_peaks(ECG_R_Peaks)) < 12) \
             .skip(lambda ECG_R_Peaks: min(extract_hr_from_peaks(ECG_R_Peaks, sample_frequency=args.sample_frequency)) < 40) \
+            .skip(lambda ECG_R_Peaks: max(extract_hr_from_peaks(ECG_R_Peaks, sample_frequency=args.sample_frequency)) > 220) \
             .extract('category', lambda category: Counter(category).most_common(1)[0][0]) \
             .extract('label', lambda label: Counter(label).most_common(1)[0][0]) \
             .use('rpeaks', lambda ECG_R_Peaks: extract_peaks(ECG_R_Peaks)) \
