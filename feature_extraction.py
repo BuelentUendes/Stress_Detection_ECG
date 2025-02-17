@@ -50,9 +50,9 @@ def main(args):
             .extract(time_domain([TimeFeature.CVNN, TimeFeature.CVSD, TimeFeature.NN20, TimeFeature.PNN20, TimeFeature.NN50, TimeFeature.PNN50], sampling_rate=args.sample_frequency)) \
             .extract(frequency_domain([FrequencyFeature.MIN, FrequencyFeature.MAX, FrequencyFeature.MEAN, FrequencyFeature.STD,FrequencyFeature.POWER, FrequencyFeature.COVARIANCE, FrequencyFeature.ENERGY, FrequencyFeature.ENTROPY], sampling_rate=args.sample_frequency)) \
             .extract(nonlinear_domain([NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE, NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION], sampling_rate=args.sample_frequency)) \
-            .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean))) \
+            .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean, sampling_rate=args.sample_frequency))) \
             .extract(morphology_domain([MorphologyFeature.TWA])) \
-        .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv')))
+        .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv'), use_parquet=False))
 
 
 if __name__ == "__main__":
