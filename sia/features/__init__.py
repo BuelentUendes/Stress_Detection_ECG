@@ -49,7 +49,6 @@ def extract_hr_from_peaks(peaks: list[int], sample_frequency: int = 1000) -> lis
     rpeaks = np.nonzero(peaks)[0]
     rri = np.diff(rpeaks) * (1 / sample_frequency)
     hr = 60 / rri  # HR = 60/RR interval in seconds
-    print(f"The min heart rate is {min(hr)}")
 
     return hr
 
@@ -70,7 +69,7 @@ def delineate(features: Union[Waves, list[Waves]]):
     function
         A function that computes the ECG delineation features.
     """
-    def inner(ECG_Clean: list[float]):
-        _, r_peaks = nk.ecg_peaks(ECG_Clean)
-        return nk.ecg_delineate(ECG_Clean, r_peaks, method="dwt")[0][features]
+    def inner(ECG_Clean: list[float], sampling_rate: int):
+        _, r_peaks = nk.ecg_peaks(ECG_Clean, sampling_rate=sampling_rate)
+        return nk.ecg_delineate(ECG_Clean, r_peaks, method="dwt", sampling_rate=sampling_rate)[0][features]
     return inner
