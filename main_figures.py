@@ -97,6 +97,7 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
             # Load calibration data
             cal_df = pd.read_csv(model_cal_path)
             ece = cal_df["ece"][0]
+            brier_score = cal_df["brier score"][0]
 
             # Plot calibration curve
             plt.plot(
@@ -105,7 +106,8 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
                 marker='o',
                 linewidth=1,
                 color=colors[model],
-                label=f"{MODELS_ABBREVIATION_DICT[model]} ECE: {np.round(ece, 4)}"
+                label=f"{MODELS_ABBREVIATION_DICT[model]} ECE: {np.round(ece, 4)} "
+                      f"Brier score: {np.round(brier_score, 4)}"
             )
         except Exception as e:
             print(f"Error loading calibration data for {model}: {e}. We will continue")
@@ -270,7 +272,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
 def main(args):
     # Get all sample frequencies to analyze
-    sample_frequencies = [128, 256, 512, 1000]  # Add or modify frequencies as needed
+    sample_frequencies = [256, 512, 1000]  # Add or modify frequencies as needed
 
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
 
