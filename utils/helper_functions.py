@@ -1020,8 +1020,10 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,
             torch.from_numpy(predictions), torch.from_numpy(np.asarray(y_test)), n_bins=n_bins, norm="l1"
         )
 
+        brier_score = np.mean((y_test-predictions)**2)
         calibration_df = pd.DataFrame({'prob_true': prob_true, 'prob_pred': prob_pred})
         calibration_df["ece"] = ece.item()
+        calibration_df["brier score"] = np.round(brier_score, 4)
 
         fig, ax = plt.subplots()
         plt.plot(prob_pred, prob_true, marker='o', linewidth=1, label=f'model ECE: {np.round(ece, 4)}')
@@ -1039,7 +1041,7 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,
         plt.savefig(os.path.join(save_path, f'{bin_strategy}_{n_bins}_calibration_plot.png'), dpi=400, format="png")
         plt.clf()
 
-        print(f"The ECE is {ece}")
+        print(f"The ECE is {ece}. The brier score is {brier_score}")
         calibration_df.to_csv(os.path.join(save_path,
                                            f'{bin_strategy}_{n_bins}_calibration_summary.csv'), index=False)
     except Exception as e:
@@ -1055,7 +1057,7 @@ def min_max_scaling(values):
     ]
 
 
-def get_feature_importance_model(model, feature_names, normalize_values=True):
+def get_feature_importance_model(model, feature_names, normalize_values=False):
 
     if isinstance(model, LogisticRegression):
         feature_coefficients = model.coef_[0]
