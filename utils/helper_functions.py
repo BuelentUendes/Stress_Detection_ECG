@@ -621,7 +621,7 @@ def bootstrap_test_performance(model: BaseEstimator,
                 'balanced_accuracy': {'mean': float, 'ci_lower': float, 'ci_upper': float}
             }
     """
-    X_test, y_test = test_data
+    X_test, y_test, label_test = test_data
     n_samples = len(X_test)
     
     # Initialize results dictionary
