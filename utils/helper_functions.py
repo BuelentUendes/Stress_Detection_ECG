@@ -859,11 +859,6 @@ class FeatureSelectionPipeline:
         Returns:
             dict: Best hyperparameters
         """
-        # # Check if cached results exist
-        # if save_path and os.path.exists(save_path):
-        #     with open(save_path, 'r') as f:
-        #         return json.load(f)
-        
         # Create Optuna study
         study = optuna.create_study(direction="maximize")
         
@@ -886,13 +881,7 @@ class FeatureSelectionPipeline:
         
         # Get best parameters
         best_params = study.best_params
-        
-        # # Cache results if path provided
-        # if save_path:
-        #     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        #     with open(save_path, 'w') as f:
-        #         json.dump(best_params, f)
-        #
+
         return best_params
 
     def fit(self, 
@@ -909,8 +898,8 @@ class FeatureSelectionPipeline:
             feature_names: List of feature names
             save_path: Path to cache hyperparameters. If None, no saving is done.
         """
-        X_train, y_train = train_data
-        X_val, y_val = val_data
+        X_train, y_train, _ = train_data
+        X_val, y_val, _ = val_data
         
         # First find best hyperparameters
         best_params = self.find_best_hyperparameter_base_estimator(
