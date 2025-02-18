@@ -244,18 +244,23 @@ class ECGDataset:
 
 
 #Todo: Extend to multiclass classification
-def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # First drop data that is not either in the positive class or negative class
     data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
     # Then label the data 1 for positive and 0 for negative
     data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     # Split data into x_data and y_data
-    x = data.drop(columns=["category"]).reset_index(drop=True)
+    x = data.drop(columns=["category", "label"]).reset_index(drop=True) if "label" in list(data.columns) \
+        else data.drop(columns=["category"]).reset_index(drop=True)
+    label = data["label"].reset_index(drop=True) if "label" in list(data.columns) \
+        else None
+
+    # In case we have the column label here we will keep it so we can track it
     # The target label needs to be an integer
     y = data["category"].astype(int).reset_index(drop=True)
 
-    return x, y
+    return x, label, y
 
 
 def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -372,11 +377,11 @@ def prepare_data(train_data: pd.DataFrame,
     # Use resampling if provided
     if resampling_method is not None:
         # First encode all available data
-        x_train, y_train = encode_data(train_data, positive_class, negative_class)
-        x_val, y_val = encode_data(val_data, positive_class, negative_class)
+        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
+        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
 
         if test_data is not None:
-            x_test, y_test = encode_data(test_data, positive_class, negative_class)
+            x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
 
         if use_subset is not None:
             # Ensure the length of use_subset matches the number of features
@@ -405,10 +410,10 @@ def prepare_data(train_data: pd.DataFrame,
     else:
         # If no resampling, just shuffle and encode the data
         train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
-        x_train, y_train = encode_data(train_data, positive_class, negative_class)
-        x_val, y_val = encode_data(val_data, positive_class, negative_class)
+        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
+        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
         if test_data is not None:
-            x_test, y_test = encode_data(test_data, positive_class, negative_class)
+            x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
 
         # Ensure the length of use_subset matches the number of features
         if use_subset is not None:
@@ -435,9 +440,9 @@ def prepare_data(train_data: pd.DataFrame,
 
     # Return appropriate tuple based on whether test_data was provided
     if test_data is not None:
-        return (x_train, y_train), (x_val, y_val), (x_test, y_test), feature_names
+        return (x_train, y_train, label_train), (x_val, y_val, label_val), (x_test, y_test, label_test), feature_names
     else:
-        return (x_train, y_train), (x_val, y_val), feature_names
+        return (x_train, y_train, label_train), (x_val, y_val, label_val), feature_names
 
 
 def normalize_data(train_data: pd.DataFrame) -> tuple:
