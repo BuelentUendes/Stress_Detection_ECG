@@ -159,7 +159,6 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
         return None
 
 
-
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size),
                                     str(args.window_shift))
@@ -224,8 +223,15 @@ def main(args):
         # best_feature_mask has 104 features
         selected_features = list(feature_selector.best_features_mask)
 
+    print(selected_features)
     # Get the regular datasplit
     train_data, val_data, test_data = ecg_dataset.get_data()
+
+    # Get the histogram
+    # ecg_dataset.plot_histogram("hr_mean", "Mean Heart Rate", save_path=FIGURES_PATH)
+
+    # ToDo:
+    # Add a section of only subset of features
 
     train_data, val_data, test_data, feature_names = prepare_data(
         train_data,
@@ -323,11 +329,16 @@ def main(args):
     print(f"We are getting the explanations")
     shap_values = explainer(test_data[0])
 
+    # We can also do the prediction paths to see the predictions that are highly predictive then for ranging 0.95 - 1.
+    # For mental stress vs baseline, mental stress vs
+
+    save_name_shap = f"{study_name}_shap_beeswarm_feature_selection.png" if args.use_feature_selection else \
+        f"{study_name}_shap_beeswarm.png"
     # Create and save the beeswarm plot
     plt.figure(figsize=(12, 8))
-    shap.plots.beeswarm(shap_values, show=False)
+    shap.plots.beeswarm(shap_values, show=False, max_display=11)
     plt.tight_layout()
-    plt.savefig(os.path.join(figures_path_root, f"{study_name}_shap_beeswarm.png"), 
+    plt.savefig(os.path.join(figures_path_root, f"{save_name_shap}"),
                 dpi=500,
                 bbox_inches='tight')
     plt.close()
@@ -345,7 +356,7 @@ if __name__ == "__main__":
                         type=validate_scaler,
                         default="standard_scaler")
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=1000, type=int)
+                        default=512, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
@@ -368,9 +379,9 @@ if __name__ == "__main__":
                         default="quantile")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
-    parser.add_argument("--min_features", type=int, default=50,
+    parser.add_argument("--min_features", type=int, default=91,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=60,
+    parser.add_argument("--max_features", type=int, default=95,
                        help="Maximum number of features to select")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
 
@@ -383,6 +394,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.verbose = True
+
     # Set seed for reproducibility
     set_seed(args.seed)
 
