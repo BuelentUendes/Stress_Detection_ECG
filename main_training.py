@@ -321,26 +321,30 @@ def main(args):
     # Getting the feature names in a better format
     feature_names = [name.replace("_", " ") for name in feature_names]
 
-    get_feature_importance_model(best_model, feature_names)
+    # Feature coefficients for LR model
+    # print(get_feature_importance_model(best_model, feature_names)[:10])
 
     # Get the shap values
-    explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
-    print(f"We are getting the explanations")
-    shap_values = explainer(test_data[0])
+    # ToDo: RF somehow has issues!
+    #Fix this
+    if args.model_type != "rf":
+        explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
+        print(f"We are getting the explanations")
+        shap_values = explainer(test_data[0])
 
-    # We can also do the prediction paths to see the predictions that are highly predictive then for ranging 0.95 - 1.
-    # For mental stress vs baseline, mental stress vs
+        # We can also do the prediction paths to see the predictions that are highly predictive then for ranging 0.95 - 1.
+        # For mental stress vs baseline, mental stress vs
 
-    save_name_shap = f"{study_name}_shap_beeswarm_feature_selection.png" if args.use_feature_selection else \
-        f"{study_name}_shap_beeswarm.png"
-    # Create and save the beeswarm plot
-    plt.figure(figsize=(12, 8))
-    shap.plots.beeswarm(shap_values, show=False, max_display=11)
-    plt.tight_layout()
-    plt.savefig(os.path.join(figures_path_root, f"{save_name_shap}"),
-                dpi=500,
-                bbox_inches='tight')
-    plt.close()
+        save_name_shap = f"{study_name}_shap_beeswarm_feature_selection.png" if args.use_feature_selection else \
+            f"{study_name}_shap_beeswarm.png"
+        # Create and save the beeswarm plot
+        plt.figure(figsize=(12, 8))
+        shap.plots.beeswarm(shap_values, show=False, max_display=11)
+        plt.tight_layout()
+        plt.savefig(os.path.join(figures_path_root, f"{save_name_shap}"),
+                    dpi=500,
+                    bbox_inches='tight')
+        plt.close()
 
 
 if __name__ == "__main__":
