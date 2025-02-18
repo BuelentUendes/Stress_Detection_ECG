@@ -223,7 +223,6 @@ def main(args):
         # best_feature_mask has 104 features
         selected_features = list(feature_selector.best_features_mask)
 
-    print(selected_features)
     # Get the regular datasplit
     train_data, val_data, test_data = ecg_dataset.get_data()
 
