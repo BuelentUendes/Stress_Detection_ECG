@@ -109,7 +109,7 @@ class ECGDataset:
         """
         self.data_folders = [filename for filename in os.listdir(self.root_dir) if filename.lower().endswith((".csv"))]
 
-    def _load_data(self, data_files: list[str]) -> pd.DataFrame:
+    def _load_data(self, data_files: list[str], add_participant_id: Optional[bool]=False) -> pd.DataFrame:
         """
         Loads the data into a pandas dataframe from the CSV files.
         :param data_files: list of data files to load from
@@ -118,15 +118,65 @@ class ECGDataset:
         dataframes = []  # List to hold individual DataFrames
 
         for csv_file in data_files:
+            if add_participant_id:
+                participant_idx = int(csv_file.split(".")[0])
             file_path = os.path.join(self.root_dir, csv_file)  # Construct full file path
             try:
                 df = pd.read_csv(file_path)  # Read CSV file into DataFrame
+                if add_participant_id:
+                    df["participant_id"] = participant_idx
                 dataframes.append(df)  # Append DataFrame to the list
             except Exception as e:
                 print(f"Error reading {file_path}: {e}")  # Handle exceptions
 
         combined_df = pd.concat(dataframes, ignore_index=True)  # Concatenate all DataFrames
         return combined_df  # Return the combined DataFrame
+
+    def _split_data_by_condition(self, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Splits the data by condition within each participant, using 'Recov_standing' as the splitting point.
+        All data before 'Recov_standing' goes to training, all data after goes to testing.
+        """
+        participants = list(set(data["participant_id"].values))
+        train_frames = []
+        test_frames = []
+
+        for participant in participants:
+            # Get data for this participant
+            participant_df = data[data["participant_id"] == participant].copy()
+            participant_df = participant_df.reset_index(drop=True)  # Reset index for proper splitting
+            
+            # Find the index where 'Recov_standing' occurs
+            recov_indices = participant_df.index[participant_df["label"] == "Recov_standing"]
+            
+            if len(recov_indices) == 0:
+                print(f"Warning: No 'Recov_standing' found for participant {participant}. Skipping.")
+                continue
+            
+            split_idx = recov_indices[0]  # Take the first occurrence
+            
+            # Split the data at the recovery standing point
+            train_data = participant_df.loc[:split_idx-1]
+            test_data = participant_df.loc[split_idx:]
+
+            # Check that filtering worked
+            assert len(train_data[train_data["label"]=="Recov_standing"]) == 0, "train data contains the filter condition!"
+
+            # Only append if we have data in both splits
+            if not train_data.empty and not test_data.empty:
+                train_frames.append(train_data)
+                test_frames.append(test_data)
+            else:
+                print(f"Warning: Empty split for participant {participant}. Skipping.")
+
+        # Combine all participants' data
+        if not train_frames or not test_frames:
+            raise ValueError("No valid splits found in the data. Check if 'Recov_standing' exists in labels.")
+        
+        training_data = pd.concat(train_frames, axis=0, ignore_index=True)
+        testing_data = pd.concat(test_frames, axis=0, ignore_index=True)
+
+        return training_data, testing_data
 
     def plot_histogram(self,
                        column: str,
@@ -197,7 +247,14 @@ class ECGDataset:
         participant_files = self.data_folders
 
         # Get the total files
-        self.total_data = self._load_data(participant_files)
+        self.total_data = self._load_data(participant_files, add_participant_id=True)
+
+        # Find the idx where split should occur "Recovery standing"
+        self.train_data_within, self.test_data_within = self._split_data_by_condition(self.total_data)
+
+        # Get rid of the participant id as we do not need it anymore
+        self.train_data_within = self.train_data_within.drop(["participant_id"], axis=1)
+        self.test_data_within = self.test_data_within.drop(["participant_id"], axis=1)
 
         self.number_mental_stress = self.total_data[self.total_data["category"] == "mental_stress"].count(axis=1)
         self.number_baseline = self.total_data[self.total_data["category"] == "baseline"].count(axis=1)
@@ -412,6 +469,7 @@ def prepare_data(train_data: pd.DataFrame,
         train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
         x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
         x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
+
         if test_data is not None:
             x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
 
@@ -535,10 +593,10 @@ def get_data_balance(train_data:np.array, val_data: np.array, test_data: np.arra
 
 def evaluate_classifier(ml_model: BaseEstimator,
                         train_data: tuple[np.ndarray, np.ndarray],
-                        val_data: tuple[np.ndarray, np.ndarray],
-                        test_data: tuple[np.ndarray, np.ndarray],
-                        save_path: str,
-                        save_name: str,
+                        val_data: Optional[tuple[np.ndarray, np.ndarray]] = None,
+                        test_data: Optional[tuple[np.ndarray, np.ndarray]] = None,
+                        save_path: str = None,
+                        save_name: str = None,
                         verbose: bool = False) -> dict[str, float]:
     """
     Evaluates the trained machine learning model and gets the performance metrics
@@ -560,9 +618,9 @@ def evaluate_classifier(ml_model: BaseEstimator,
         return pr_auc
 
     results = {
-        'proportion class 1': get_data_balance(train_data[1], val_data[1], test_data[1]),
+        'proportion class 1': get_data_balance(train_data[1], val_data[1], test_data[1]) if val_data is not None else None,
         'train_balanced_accuracy': round_result(metrics.balanced_accuracy_score(train_data[1], ml_model.predict(train_data[0]))),
-        'val_balanced_accuracy': round_result(metrics.balanced_accuracy_score(val_data[1], ml_model.predict(val_data[0]))),
+        'val_balanced_accuracy': round_result(metrics.balanced_accuracy_score(val_data[1], ml_model.predict(val_data[0]))) if val_data is not None else None,
         'test_balanced_accuracy': round_result(metrics.balanced_accuracy_score(test_data[1], ml_model.predict(test_data[0]))),
     }
 
@@ -570,12 +628,12 @@ def evaluate_classifier(ml_model: BaseEstimator,
     if len(train_data[1].unique()) == 2:
         # Add here the PR-recall curve! instead of F1
         results['train_pr_auc'] = round_result(get_pr_curve(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
-        results['val_pr_auc'] = round_result(get_pr_curve(val_data[1], ml_model.predict_proba(val_data[0])[:, 1]))
+        results['val_pr_auc'] = round_result(get_pr_curve(val_data[1], ml_model.predict_proba(val_data[0])[:, 1])) if val_data is not None else None
         results['test_pr_auc'] = round_result(get_pr_curve(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
 
         # ROC AUC
         results['train_roc_auc'] = round_result(metrics.roc_auc_score(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
-        results['val_roc_auc'] = round_result(metrics.roc_auc_score(val_data[1], ml_model.predict_proba(val_data[0])[:, 1]))
+        results['val_roc_auc'] = round_result(metrics.roc_auc_score(val_data[1], ml_model.predict_proba(val_data[0])[:, 1])) if val_data is not None else None
         results['test_roc_auc'] = round_result(metrics.roc_auc_score(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
 
     else:
@@ -589,7 +647,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
         save_name = "performance_metrics.json"
 
     with open(os.path.join(save_path, save_name), 'w') as f:
-        json.dump(results, f)  # Save results in JSON format
+        json.dump(results, f, indent=4)  # Save results in JSON format
 
     return results
 
