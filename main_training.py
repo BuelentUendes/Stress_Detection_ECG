@@ -7,6 +7,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import optuna
+import numpy as np
 from sklearn import metrics
 from optuna.trial import Trial
 import json
@@ -74,17 +75,21 @@ def objective(trial: Trial,
         }
     elif model_type.lower() == "xgboost":
         params = {
+            # Reduce from 300 to focus on preventing overfitting
             'n_estimators': trial.suggest_int('n_estimators', 25, 200),
-            'max_depth': trial.suggest_int('max_depth', 3, 8),
-            'learning_rate': trial.suggest_float('learning_rate', 0.0001, 1.0, log=True),
-            'objective': 'binary:logistic',
+            # Reduce max_depth to prevent overfitting
+            'max_depth': trial.suggest_int('max_depth', 2, 8),
+            # Slower learning rate for better generalization
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
 
-            'subsample': trial.suggest_float('subsample', 0.5, 0.8),
-            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 0.8),
+            # Increase minimum values for stronger regularization
+            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
 
-            'reg_lambda': trial.suggest_float('reg_lambda', 0.001, 10.0),
-            'reg_alpha': trial.suggest_float('reg_alpha', 0.001, 10.0),
-            
+            # Increase regularization range
+            'reg_lambda': trial.suggest_float('reg_lambda', 0.1, 1.0),
+            'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 2.0),
+
             'use_label_encoder': False,
             'n_jobs': -1
         }
@@ -226,11 +231,22 @@ def main(args):
     # Get the regular datasplit
     train_data, val_data, test_data = ecg_dataset.get_data()
 
+    # Within participant test
+    if args.add_within_comparison:
+        train_data_within, test_data_within = ecg_dataset.train_data_within, ecg_dataset.test_data_within
+
+        train_data_within, test_data_within, feature_names = prepare_data(
+            train_data_within,
+            test_data_within,
+            positive_class=args.positive_class,
+            negative_class=args.negative_class,
+            resampling_method=args.resampling_method,
+            scaler=args.standard_scaler,
+            use_subset=selected_features if args.use_feature_selection else None,
+        )
+
     # Get the histogram
     # ecg_dataset.plot_histogram("hr_mean", "Mean Heart Rate", save_path=FIGURES_PATH)
-
-    # ToDo:
-    # Add a section of only subset of features
 
     train_data, val_data, test_data, feature_names = prepare_data(
         train_data,
@@ -279,6 +295,16 @@ def main(args):
         save_name=f"{study_name}_best_performance_results_feature_selection.json" if args.use_feature_selection else f"{study_name}_best_performance_results.json",
         verbose=args.verbose)
 
+    # Evalate within setting
+    if args.add_within_comparison:
+        best_model.fit(train_data_within[0], train_data_within[1])
+        # Evaluate final model
+        evaluate_classifier(
+            best_model, train_data=train_data, test_data=test_data,
+            save_path=results_path_best_performance,
+            save_name=f"WITHIN_{study_name}_best_performance_results_feature_selection.json" if args.use_feature_selection else f"WITHIN_{study_name}_best_performance_results.json",
+            verbose=args.verbose)
+
     if args.bootstrap_test_results:
         final_bootstrapped_results = bootstrap_test_performance(
             best_model,
@@ -292,6 +318,20 @@ def main(args):
         save_name = f"{study_name}_bootstrapped_feature_selection.json" if args.use_feature_selection else f"{study_name}_bootstrapped.json"
         with open(os.path.join(results_path_bootstrap_performance, save_name), "w") as f:
             json.dump(final_bootstrapped_results, f, indent=4)
+
+        if args.add_within_comparison:
+            final_bootstrapped_results_within = bootstrap_test_performance(
+                best_model,
+                test_data_within,
+                args.bootstrap_samples,
+                args.bootstrap_method,
+            )
+            if args.verbose:
+                print(final_bootstrapped_results_within)
+
+            save_name = f"WITHIN_{study_name}_bootstrapped_feature_selection.json" if args.use_feature_selection else f"WITHIN_{study_name}_bootstrapped.json"
+            with open(os.path.join(results_path_bootstrap_performance, save_name), "w") as f:
+                json.dump(final_bootstrapped_results, f, indent=4)
 
     if args.do_hyperparameter_tuning:
         # Save study statistics and best parameters
@@ -359,14 +399,14 @@ if __name__ == "__main__":
                         type=validate_scaler,
                         default="standard_scaler")
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=512, type=int)
+                        default=128, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm'",
-                        type=validate_ml_model, default="lr")
+                        type=validate_ml_model, default="xgboost")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
@@ -389,6 +429,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
 
     parser.add_argument("--add_calibration_plots", action="store_true", help="If set, we will plot calibration plots")
+    parser.add_argument("--add_within_comparison", action="store_true", help="If set, we will also run a within study for comparison reasons.")
+
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
     parser.add_argument("--bin_strategy", help="what binning strategy to use",
