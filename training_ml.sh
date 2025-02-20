@@ -12,10 +12,10 @@ do
   do
     for class in ${negative_classes[@]}
     do
-      if [ "@class" != "baseline" ]; then
-          python3 main_training.py --model_type $model --window_size $frequency --negative_class $class --do_hyperparameter_tuning --n_trials 25 --add_calibration_plots --bootstrap_test_results --verbose
+      if [ "@class" = "baseline" ]; then
+        python3 main_training.py --model_type $model --sample_frequency $frequency --negative_class $class --do_hyperparameter_tuning --n_trials 25 --add_calibration_plots --bootstrap_test_results --verbose
       else
-        python3 main_training.py --model_type $model --window_size $frequency --negative_class $class --do_hyperparameter_tuning --n_trials 25 --add_calibration_plots --bootstrap_test_results --verbose --resampling_method smote
+        python3 main_training.py --model_type $model --sample_frequency $frequency --negative_class $class --do_hyperparameter_tuning --n_trials 25 --add_calibration_plots --bootstrap_test_results --verbose --resampling_method smote
       fi
     done
   done
