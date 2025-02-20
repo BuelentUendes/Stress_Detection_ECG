@@ -132,10 +132,18 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
     plt.close()
 
 
-def load_bootstrap_results(path: str, model_name: str, sample_freq: int, window_size: int, comparison: str) -> dict:
+def load_bootstrap_results(path: str,
+                           model_name: str,
+                           sample_freq: int,
+                           window_size: int,
+                           comparison: str,
+                           resampled: bool) -> dict:
     """Load bootstrap results for a specific model and sample frequency"""
+
+    save_name = f"None_{model_name}_bootstrapped.json" if not resampled else f"smote_{model_name}_bootstrapped.json"
+
     full_path = os.path.join(path, str(sample_freq), str(window_size), comparison,
-                            model_name, "bootstrap_test", f"None_{model_name}_bootstrapped.json")
+                            model_name, "bootstrap_test", f"{save_name}")
     try:
         with open(full_path, 'r') as f:
             return json.load(f)
@@ -272,16 +280,19 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
 def main(args):
     # Get all sample frequencies to analyze
-    sample_frequencies = [256, 512, 1000]  # Add or modify frequencies as needed
+    sample_frequencies = [128, 256, 512, 1000]  # Add or modify frequencies as needed
 
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
+
+    # We use this to either get the results from smote or not
+    resampled_bool = True if args.negative_class in ["low_physical_activity", "moderate_physical_activity"] else False
 
     # Collect results for all frequencies
     bootstrapped_results = {}
     for freq in sample_frequencies:
         bootstrapped_results[freq] = {
             model: load_bootstrap_results(
-                RESULTS_PATH, model, freq, args.window_size, comparison
+                RESULTS_PATH, model, freq, args.window_size, comparison, resampled_bool
             ) for model in args.models
         }
 
