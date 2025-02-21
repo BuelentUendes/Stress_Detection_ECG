@@ -132,18 +132,24 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
     plt.close()
 
 
-def load_bootstrap_results(path: str,
-                           model_name: str,
-                           sample_freq: int,
-                           window_size: int,
-                           comparison: str,
-                           resampled: bool) -> dict:
-    """Load bootstrap results for a specific model and sample frequency"""
+def load_json_results(path: str,
+                      model_name: str,
+                      sample_freq: int,
+                      window_size: int,
+                      comparison: str,
+                      results_type: str,
+                      resampled: bool,) -> dict:
+    """Load bootstrap results or feature selection results for a specific model and sample frequency"""
 
-    save_name = f"None_{model_name}_bootstrapped.json" if not resampled else f"smote_{model_name}_bootstrapped.json"
+    if results_type == "bootstrap":
+        folder_name = "bootstrap_test"
+        save_name = f"None_{model_name}_bootstrapped.json" if not resampled else f"smote_{model_name}_bootstrapped.json"
+    elif results_type == "feature_selection":
+        folder_name = "feature_selection"
+        save_name = "feature_selection_results.json"
 
     full_path = os.path.join(path, str(sample_freq), str(window_size), comparison,
-                            model_name, "bootstrap_test", f"{save_name}")
+                            model_name, f"{folder_name}", f"{save_name}")
     try:
         with open(full_path, 'r') as f:
             return json.load(f)
@@ -291,9 +297,16 @@ def main(args):
     bootstrapped_results = {}
     for freq in sample_frequencies:
         bootstrapped_results[freq] = {
-            model: load_bootstrap_results(
-                RESULTS_PATH, model, freq, args.window_size, comparison, resampled_bool
-            ) for model in args.models
+            model: load_json_results(
+                RESULTS_PATH,
+                model,
+                freq,
+                args.window_size,
+                comparison,
+                "bootstrap",
+                resampled_bool,
+            )
+            for model in args.models
         }
 
     # Plot bootstrap comparisons for each metric
@@ -340,3 +353,6 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     main(args)
+
+    #ToDo:
+    # Plot feature selection history with #number of features against the feature
