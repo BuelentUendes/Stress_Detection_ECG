@@ -83,11 +83,16 @@ class ECGDataset:
     Feature engineered dataset for the ECG dataset
     """
 
-    def __init__(self, root_dir: str, test_size: Optional[float] = 0.2, val_size: Optional[float] = 0.2):
+    def __init__(self,
+                 root_dir: str,
+                 test_size: Optional[float] = 0.2,
+                 val_size: Optional[float] = 0.2,
+                 add_participant_id: Optional[bool] = False):
         """
         :param root_dir: root directory for the data import
         :param test_size: test size split, default 0.2
         :param val_size: val size split, default 0.2
+        :param add_participant_id, if we should do a within setup
         """
 
         assert isinstance(test_size, float), "test size needs to be a float"
@@ -99,6 +104,7 @@ class ECGDataset:
         self.root_dir = root_dir
         self.test_size = test_size
         self.val_size = val_size
+        self.add_participant_id = add_participant_id
 
         self._get_data_folders()
         self._split_data()
@@ -109,7 +115,7 @@ class ECGDataset:
         """
         self.data_folders = [filename for filename in os.listdir(self.root_dir) if filename.lower().endswith((".csv"))]
 
-    def _load_data(self, data_files: list[str], add_participant_id: Optional[bool]=False) -> pd.DataFrame:
+    def _load_data(self, data_files: list[str]) -> pd.DataFrame:
         """
         Loads the data into a pandas dataframe from the CSV files.
         :param data_files: list of data files to load from
@@ -118,12 +124,12 @@ class ECGDataset:
         dataframes = []  # List to hold individual DataFrames
 
         for csv_file in data_files:
-            if add_participant_id:
+            if self.add_participant_id:
                 participant_idx = int(csv_file.split(".")[0])
             file_path = os.path.join(self.root_dir, csv_file)  # Construct full file path
             try:
                 df = pd.read_csv(file_path)  # Read CSV file into DataFrame
-                if add_participant_id:
+                if self.add_participant_id:
                     df["participant_id"] = participant_idx
                 dataframes.append(df)  # Append DataFrame to the list
             except Exception as e:
@@ -250,7 +256,8 @@ class ECGDataset:
         self.total_data = self._load_data(participant_files, add_participant_id=True)
 
         # Find the idx where split should occur "Recovery standing"
-        self.train_data_within, self.test_data_within = self._split_data_by_condition(self.total_data)
+        if self.add_participant_id:
+            self.train_data_within, self.test_data_within = self._split_data_by_condition(self.total_data)
 
         # Get rid of the participant id as we do not need it anymore
         self.train_data_within = self.train_data_within.drop(["participant_id"], axis=1)
