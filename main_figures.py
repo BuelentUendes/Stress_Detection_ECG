@@ -17,17 +17,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-
 # Color scheme:
-colors = {
-    'black':   '#000000',
-    'orange':  '#E69F00',
-    'sky_blue': '#56B4E9',
-    'green':    '#009E73',
-    'yellow':  '#F0E442',
-    'blue':    '#0072B2',
-    'brown':   '#D55E00',
-    'magenta': '#CC79A7'
+COLORS_DICT = {
+    'rf': '#E69F00',  # Orange
+    'xgboost': '#56B4E9',  # Sky blue
+    'lr': '#009E73',  # Green
+    'yellow': '#F0E442',
+    'blue': '#0072B2',  # Blue
+    'brown': '#D55E00',
+    'magenta': '#CC79A7',
 }
 
 MODELS_ABBREVIATION_DICT = {
@@ -79,16 +77,6 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
     """
     plt.figure(figsize=(10, 8))
 
-    colors = {
-        'rf': '#E69F00', #Orange
-        'xgboost': '#56B4E9',  # Sky blue
-        'lr': '#009E73', #Green
-        'yellow': '#F0E442',
-        'blue': '#0072B2', # Blue
-        'brown': '#D55E00',
-        'magenta': '#CC79A7',
-    }
-
     for model in models:
         # Construct path to calibration results
         model_cal_path = os.path.join(figures_path, model, f'{bin_strategy}_{n_bins}_calibration_summary.csv')
@@ -105,7 +93,7 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
                 cal_df['prob_true'],
                 marker='o',
                 linewidth=1,
-                color=colors[model],
+                color=COLORS_DICT[model],
                 label=f"{MODELS_ABBREVIATION_DICT[model]} ECE: {np.round(ece, 4)} "
                       f"Brier score: {np.round(brier_score, 4)}"
             )
@@ -138,7 +126,7 @@ def load_json_results(path: str,
                       window_size: int,
                       comparison: str,
                       results_type: str,
-                      resampled: bool,) -> dict:
+                      resampled: Optional[bool] = False,) -> dict:
     """Load bootstrap results or feature selection results for a specific model and sample frequency"""
 
     if results_type == "bootstrap":
@@ -284,17 +272,50 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
     plt.close()
 
 
+def plot_feature_selection(
+        feature_selection_dict: dict,
+        figures_path_root: str,
+        start_feature_selection: int = 5
+) -> None:
+
+    x_axis = np.arange(start=start_feature_selection,
+                       stop=start_feature_selection + len(next(iter(feature_selection_dict.values()))))
+
+    plt.figure(figsize=(8, 6))
+
+    for model, scores in feature_selection_dict.items():
+        # Plot calibration curve
+        plt.plot(x_axis, scores,
+            color=COLORS_DICT[model],
+            label=f"{MODELS_ABBREVIATION_DICT[model]}"
+        )
+
+    plt.xlabel('Number of features')
+    plt.ylabel('Validation ROC-AUC score')
+
+    plt.legend(loc='lower right')
+    plt.tight_layout()
+
+    # Save the combined plot
+    save_path = os.path.join(figures_path_root, f'feature_selection.png')
+    plt.savefig(save_path, dpi=500, bbox_inches='tight')
+    plt.close()
+
+
 def main(args):
     # Get all sample frequencies to analyze
     sample_frequencies = [128, 256, 512, 1000]  # Add or modify frequencies as needed
 
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
-
+    figures_path = os.path.join(FIGURES_PATH, str(args.sample_frequency),
+                                    str(args.window_size), comparison)
     # We use this to either get the results from smote or not
     resampled_bool = True if args.negative_class in ["low_physical_activity", "moderate_physical_activity"] else False
 
     # Collect results for all frequencies
     bootstrapped_results = {}
+    feature_selection_results = {}
+
     for freq in sample_frequencies:
         bootstrapped_results[freq] = {
             model: load_json_results(
@@ -309,6 +330,21 @@ def main(args):
             for model in args.models
         }
 
+    for model in args.models:
+        try:
+            feature_selection_results[model] = load_json_results(
+                    RESULTS_PATH,
+                    model,
+                    sample_freq=1000,
+                    window_size=args.window_size,
+                    comparison=comparison,
+                    results_type="feature_selection",
+                )["scores"]
+        except TypeError:
+            print(f"{model} does not have the results, we skip it.")
+            continue
+
+    plot_feature_selection(feature_selection_results, figures_path)
     # Plot bootstrap comparisons for each metric
     metrics = ['roc_auc', 'pr_auc', 'balanced_accuracy']
     for metric in metrics:
@@ -320,8 +356,7 @@ def main(args):
             models=args.models,
             n_bins=args.bin_size,
             bin_strategy=args.bin_strategy,
-            figures_path=os.path.join(FIGURES_PATH, str(args.sample_frequency),
-                                    str(args.window_size), comparison),
+            figures_path=figures_path,
             comparison=comparison,
         )
 
