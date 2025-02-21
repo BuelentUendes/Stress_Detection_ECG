@@ -1,5 +1,6 @@
 import os
 import matplotlib as plt
+import numpy as np
 import shap
 import warnings
 
@@ -160,3 +161,55 @@ def create_shap_beeswarm_plot(
         print(f"Error creating SHAP beeswarm plot: {str(e)}")
         return False, None
 
+def create_shap_dependence_plots(
+    shap_values,
+    feature_names,
+    figures_path=None,
+    study_name=None,
+    feature_selection=False,
+    n_top_features=5
+):
+    """
+    Creates and saves SHAP dependence plots for top features.
+    
+    Args:
+        shap_values: SHAP values object from explainer
+        feature_names: List of feature names
+        figures_path: Directory path to save the plots (default: None)
+        study_name: Name of the study for the output files (default: None)
+        feature_selection: Boolean indicating if feature selection was used (default: False)
+        n_top_features: Number of top features to plot (default: 5)
+    
+    Returns:
+        bool: True if plots were created and saved successfully, False otherwise
+        list: List of top feature names
+    """
+    try:
+        # Get the top features by mean absolute SHAP value
+        feature_importance = np.abs(shap_values.values).mean(0)
+        top_features_idx = np.argsort(feature_importance)[-n_top_features:][::-1]
+        top_features = [feature_names[i] for i in top_features_idx]
+
+        # Create dependence plots for top features
+        for feature in top_features:
+            plt.figure(figsize=(10, 6))
+            shap.plots.scatter(shap_values[:, feature], show=False)
+            plt.title(f"SHAP Dependence Plot - {feature}")
+            plt.tight_layout()
+            
+            if figures_path and study_name:
+                save_name = f"{study_name}_shap_dependence_{feature.replace(' ', '_')}"
+                save_name += "_feature_selection" if feature_selection else ""
+                save_name += ".png"
+                plt.savefig(
+                    os.path.join(figures_path, save_name),
+                    dpi=500,
+                    bbox_inches='tight'
+                )
+            plt.close()
+            
+        return True, top_features
+
+    except Exception as e:
+        print(f"Error creating SHAP dependence plots: {str(e)}")
+        return False, None
