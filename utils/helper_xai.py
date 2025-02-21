@@ -1,5 +1,5 @@
 import os
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import numpy as np
 import shap
 import warnings
@@ -10,7 +10,7 @@ def create_shap_decision_plot(
     explainer, 
     test_data, 
     feature_names, 
-    prediction_filter='correct',  # New parameter
+    prediction_filter='correct',
     confidence_threshold=0.9,
     figures_path=None,
     study_name=None,
@@ -22,7 +22,7 @@ def create_shap_decision_plot(
     Args:
         model: Trained model with predict_proba and predict methods
         explainer: SHAP explainer object
-        test_data: Tuple of (X_test, y_test) where X_test is features and y_test is labels
+        test_data: Tuple of (X_test, y_test) or just X_test features
         feature_names: List of feature names
         prediction_filter: String indicating which predictions to analyze (default: 'correct')
             - 'correct': only high-confidence correct predictions
@@ -42,8 +42,14 @@ def create_shap_decision_plot(
         if prediction_filter not in valid_filters:
             raise ValueError(f"prediction_filter must be one of {valid_filters}")
 
+        # Handle test_data being either a tuple or feature matrix
+        if isinstance(test_data, tuple):
+            X_test, y_test, _ = test_data
+        else:
+            X_test = test_data
+            y_test = model.predict(X_test)  # Use model predictions as ground truth if no labels provided
+
         # Get predictions and probabilities
-        X_test, y_test = test_data
         y_pred_proba = model.predict_proba(X_test)
         y_pred = model.predict(X_test)
 
