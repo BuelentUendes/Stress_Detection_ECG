@@ -193,7 +193,7 @@ def main(args):
     create_directory(results_path_bootstrap_performance)
     create_directory(figures_path_root)
 
-    ecg_dataset = ECGDataset(target_data_path)
+    ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.add_within_comparison)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
@@ -399,7 +399,7 @@ if __name__ == "__main__":
                         type=validate_scaler,
                         default="standard_scaler")
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=128, type=int)
+                        default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
@@ -422,9 +422,9 @@ if __name__ == "__main__":
                         default="quantile")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
-    parser.add_argument("--min_features", type=int, default=91,
+    parser.add_argument("--min_features", type=int, default=5,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=95,
+    parser.add_argument("--max_features", type=int, default=50,
                        help="Maximum number of features to select")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
 
@@ -445,6 +445,14 @@ if __name__ == "__main__":
 
     main(args)
 
+    # Additional insights
+    #ToDo:
+    # Add the shap explanation for predictive certainty. What features drive very certain prediction that is correct?
+    # Add shap explanation for predictive certainty. What features drive certain predictions that are incorrect?
+
+    #ToDo:
+    # Add similarity DTW time-series, check how fast this is
+
     # Useful discussion for the choice of evaluation metrics:
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
 
@@ -457,3 +465,4 @@ if __name__ == "__main__":
     # take the best config,
     # And then do the feature selection on it)
     # Finetune
+
