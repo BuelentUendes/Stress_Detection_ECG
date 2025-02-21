@@ -253,7 +253,7 @@ class ECGDataset:
         participant_files = self.data_folders
 
         # Get the total files
-        self.total_data = self._load_data(participant_files, add_participant_id=True)
+        self.total_data = self._load_data(participant_files)
 
         # Find the idx where split should occur "Recovery standing"
         if self.add_participant_id:
