@@ -20,6 +20,7 @@ from utils.helper_functions import set_seed, ECGDataset, prepare_data, get_ml_mo
     bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method
+from utils.helper_xai import create_shap_dependence_plots, create_shap_beeswarm_plot, create_shap_decision_plot
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -144,7 +145,7 @@ def objective(trial: Trial,
     # Create and train model
     model = get_ml_model(model_type, params)
     model.fit(train_data[0], train_data[1])
-    
+
     # Evaluate on validation set
     if metric == "accuracy":
         val_pred = model.predict(val_data[0])
@@ -158,7 +159,7 @@ def objective(trial: Trial,
 def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
     try:
         with open(os.path.join(file_path, file_name)) as file:
-            print(f"We found the .json file and load it")
+            print(f"We found optimized parameter configurations and load it")
             return json.load(file)["best_params"]
     except FileNotFoundError:
         return None
@@ -364,43 +365,38 @@ def main(args):
     # Feature coefficients for LR model
     # print(get_feature_importance_model(best_model, feature_names)[:10])
 
-    # Get the shap values
-    # ToDo: RF somehow has issues!
-    #Fix this
+    # XAI now
     if args.model_type != "rf":
         explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
-        print(f"We are getting the explanations")
-        shap_values = explainer(test_data[0])
+        _, shap_values = create_shap_beeswarm_plot(explainer, test_data[0], figures_path=figures_path_root, study_name=study_name,
+                                  feature_selection=args.use_feature_selection, max_display=11)
+        create_shap_dependence_plots(shap_values, feature_names, figures_path=figures_path_root,
+                                     study_name=study_name, feature_selection=args.use_feature_selection,
+                                     n_top_features=5)
 
-        # Save beeswarm plot
-        save_name_shap = f"{study_name}_shap_beeswarm_feature_selection.png" if args.use_feature_selection else \
-            f"{study_name}_shap_beeswarm.png"
-        plt.figure(figsize=(12, 8))
-        shap.plots.beeswarm(shap_values, show=False, max_display=11)
-        plt.tight_layout()
-        plt.savefig(os.path.join(figures_path_root, f"{save_name_shap}"),
-                    dpi=500,
-                    bbox_inches='tight')
-        plt.close()
+        create_shap_decision_plot(
+            best_model,
+            explainer,
+            test_data,
+            feature_names,
+            prediction_filter='correct',
+            confidence_threshold=0.9,
+            figures_path=figures_path_root,
+            study_name=study_name,
+            feature_selection=args.use_feature_selection
+        )
 
-        # Get the top 5 features by mean absolute SHAP value
-        feature_importance = np.abs(shap_values.values).mean(0)
-        top_features_idx = np.argsort(feature_importance)[-5:][::-1]
-        top_features = [feature_names[i] for i in top_features_idx]
-
-        # Create dependence plots for top 5 features
-        for feature in top_features:
-            plt.figure(figsize=(10, 6))
-            shap.plots.scatter(shap_values[:, feature], show=False)
-            plt.title(f"SHAP Dependence Plot - {feature}")
-            plt.tight_layout()
-            save_name = f"{study_name}_shap_dependence_{feature.replace(' ', '_')}"
-            save_name += "_feature_selection" if args.use_feature_selection else ""
-            save_name += ".png"
-            plt.savefig(os.path.join(figures_path_root, save_name),
-                       dpi=500,
-                       bbox_inches='tight')
-            plt.close()
+        create_shap_decision_plot(
+            best_model,
+            explainer,
+            test_data,
+            feature_names,
+            prediction_filter='incorrect',
+            confidence_threshold=0.9,
+            figures_path=figures_path_root,
+            study_name=study_name,
+            feature_selection=args.use_feature_selection
+        )
 
 
 if __name__ == "__main__":
@@ -460,11 +456,6 @@ if __name__ == "__main__":
     set_seed(args.seed)
 
     main(args)
-
-    # Additional insights
-    #ToDo:
-    # Add the shap explanation for predictive certainty. What features drive very certain prediction that is correct?
-    # Add shap explanation for predictive certainty. What features drive certain predictions that are incorrect?
 
     #ToDo:
     # Add similarity DTW time-series, check how fast this is
