@@ -92,7 +92,7 @@ def create_shap_decision_plot(
                 shap_values.values,
                 filtered_instances,
                 feature_names=feature_names,
-                feature_order='hclust',
+                feature_order='importance',
                 feature_display_range=slice(-1, -X_test.shape[1], -1),
                 auto_size_plot=True,
                 show=False,
