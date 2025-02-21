@@ -372,12 +372,9 @@ def main(args):
         print(f"We are getting the explanations")
         shap_values = explainer(test_data[0])
 
-        # We can also do the prediction paths to see the predictions that are highly predictive then for ranging 0.95 - 1.
-        # For mental stress vs baseline, mental stress vs
-
+        # Save beeswarm plot
         save_name_shap = f"{study_name}_shap_beeswarm_feature_selection.png" if args.use_feature_selection else \
             f"{study_name}_shap_beeswarm.png"
-        # Create and save the beeswarm plot
         plt.figure(figsize=(12, 8))
         shap.plots.beeswarm(shap_values, show=False, max_display=11)
         plt.tight_layout()
@@ -385,6 +382,25 @@ def main(args):
                     dpi=500,
                     bbox_inches='tight')
         plt.close()
+
+        # Get the top 5 features by mean absolute SHAP value
+        feature_importance = np.abs(shap_values.values).mean(0)
+        top_features_idx = np.argsort(feature_importance)[-5:][::-1]
+        top_features = [feature_names[i] for i in top_features_idx]
+
+        # Create dependence plots for top 5 features
+        for feature in top_features:
+            plt.figure(figsize=(10, 6))
+            shap.plots.scatter(shap_values[:, feature], show=False)
+            plt.title(f"SHAP Dependence Plot - {feature}")
+            plt.tight_layout()
+            save_name = f"{study_name}_shap_dependence_{feature.replace(' ', '_')}"
+            save_name += "_feature_selection" if args.use_feature_selection else ""
+            save_name += ".png"
+            plt.savefig(os.path.join(figures_path_root, save_name),
+                       dpi=500,
+                       bbox_inches='tight')
+            plt.close()
 
 
 if __name__ == "__main__":
