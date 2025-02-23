@@ -254,13 +254,7 @@ class ECGDataset:
 
         # Get the total files
         self.total_data = self._load_data(participant_files)
-
-        # Find the idx where split should occur "Recovery standing"
-        if self.add_participant_id:
-            self.train_data_within, self.test_data_within = self._split_data_by_condition(self.total_data)
-            # Get rid of the participant id as we do not need it anymore
-            self.train_data_within = self.train_data_within.drop(["participant_id"], axis=1)
-            self.test_data_within = self.test_data_within.drop(["participant_id"], axis=1)
+        print(len(self.total_data.columns))
 
         self.number_mental_stress = self.total_data[self.total_data["category"] == "mental_stress"].count(axis=1)
         self.number_baseline = self.total_data[self.total_data["category"] == "baseline"].count(axis=1)
@@ -290,6 +284,16 @@ class ECGDataset:
         self.train_data = self._load_data(train_files)
         self.val_data = self._load_data(val_files)
         self.test_data = self._load_data(test_files)
+
+        # Find the idx where split should occur "Recovery standing"
+        if self.add_participant_id:
+            self.train_data_within, self.test_data_within = self._split_data_by_condition(self.total_data)
+            # Get rid of the participant id as we do not need it anymore
+            self.train_data_within = self.train_data_within.drop(["participant_id"], axis=1)
+            self.test_data_within = self.test_data_within.drop(["participant_id"], axis=1)
+            self.train_data = self.train_data.drop(["participant_id"], axis=1)
+            self.val_data = self.val_data.drop(["participant_id"], axis=1)
+            self.test_data = self.test_data.drop(["participant_id"], axis=1)
 
     def get_feature_selection_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         """
