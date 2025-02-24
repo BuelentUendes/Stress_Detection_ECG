@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore")
 import optuna
 import numpy as np
 from sklearn import metrics
+from sklearn.base import clone
 from optuna.trial import Trial
 import json
 import shap
@@ -164,6 +165,101 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
     except FileNotFoundError:
         return None
 
+def get_save_name(study_name: str, add_within_comparison: bool,
+                  use_default_values: bool, use_feature_selection: bool, bootstrap: bool) -> str:
+    """Generate the save filename based on the configuration.
+    
+    Args:
+        study_name: Name of the study
+        add_within_comparison: Boolean. If set, we run a within-study comparison
+        use_default_values: Boolean. If set, we do not do hyperparameter tuning and use the default values
+        use_feature_selection: Boolean. If set, we use feature selection
+        bootstrap. Boolean. If set, we use bootstrap
+    
+    Returns:
+        str: Filename for saving results
+    """
+    # Start with base name
+    prefix = "WITHIN_" if add_within_comparison else ""
+    middle = "DEFAULT_" if use_default_values else ""
+    suffix = "_feature_selection" if use_feature_selection else ""
+    end = "_boootstrapped" if bootstrap else ""
+    
+    return f"{prefix}{middle}{study_name}_best_performance_results{suffix}{end}.json"
+
+def optimize_hyperparameters(
+    model_type: str,
+    train_data: tuple,
+    val_data: tuple,
+    study_name: str,
+    results_path_history: str,
+    use_default_values: bool = False,
+    do_within_comparison: bool = False,
+    do_hyperparameter_tuning: bool = False,
+    n_trials: int = 5,
+    timeout: int = 3600,
+    metric_to_optimize: str = "roc_auc",
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Handle hyperparameter optimization logic for model training.
+    
+    Args:
+        model_type: Type of model to optimize
+        train_data: Tuple of (X_train, y_train)
+        val_data: Tuple of (X_val, y_val)
+        study_name: Name for the optimization study
+        results_path_history: Path to save/load optimization history
+        use_default_values: If True, use default hyperparameters
+        do_within_comparison: If true, then no hyperparameter tuning is done as we do not have a validation set
+        do_hyperparameter_tuning: If True, perform hyperparameter optimization
+        n_trials: Number of optimization trials
+        timeout: Maximum optimization time in seconds
+        metric_to_optimize: Metric to optimize for
+        seed: Random seed for reproducibility
+    
+    Returns:
+        dict: Best hyperparameters for the model
+    """
+    if do_hyperparameter_tuning and not do_within_comparison:
+        study = optuna.create_study(
+            direction="maximize",
+            study_name=study_name,
+            sampler=optuna.samplers.TPESampler(seed=seed)
+        )
+
+        study.optimize(
+            lambda trial: objective(trial, train_data, val_data, model_type, metric_to_optimize),
+            n_trials=n_trials,
+            timeout=timeout
+        )
+        
+        # We will save the best results now here:
+                # Save study statistics and best parameters
+        study_stats = {
+            "best_params": study.best_params,
+            "best_value": study.best_value,
+            "n_trials": len(study.trials),
+            "study_name": study_name,
+            "model_type": model_type,
+            "optimization_history": [
+                {"number": t.number, "value": t.value, "params": t.params}
+                for t in study.trials
+            ]
+        }
+
+        save_name = f"{study_name}_optimization_history_feature_selection.json" \
+            if args.use_feature_selection else f"{study_name}_optimization_history.json"
+        with open(os.path.join(results_path_history, save_name), "w") as f:
+            json.dump(study_stats, f, indent=4)
+
+        return study.best_params    
+
+    if use_default_values:
+        print("We use the default hyperparameter values")
+        return {}
+    
+    return load_best_params(results_path_history, f"{study_name}_optimization_history.json")
+
 
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size),
@@ -193,7 +289,7 @@ def main(args):
     create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
     create_directory(figures_path_root)
-    ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.add_within_comparison)
+    ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
@@ -228,25 +324,12 @@ def main(args):
         # best_feature_mask has 104 features
         selected_features = list(feature_selector.best_features_mask)
 
-    # Get the regular datasplit
-    train_data, val_data, test_data = ecg_dataset.get_data()
-
-    # Within participant test
-    if args.add_within_comparison:
-        train_data_within, test_data_within = ecg_dataset.train_data_within, ecg_dataset.test_data_within
-
-        train_data_within, test_data_within, feature_names = prepare_data(
-            train_data_within,
-            test_data_within,
-            positive_class=args.positive_class,
-            negative_class=args.negative_class,
-            resampling_method=args.resampling_method,
-            scaler=args.standard_scaler,
-            use_subset=selected_features if args.use_feature_selection else None,
-        )
-
-    # Get the histogram
-    # ecg_dataset.plot_histogram("hr_mean", "Mean Heart Rate", save_path=FIGURES_PATH)
+    if args.do_within_comparison:
+        train_data, test_data = ecg_dataset.train_data_within, ecg_dataset.test_data_within
+        val_data = None
+    else:
+        # Get the regular datasplit for the normal between people split
+        train_data, val_data, test_data = ecg_dataset.get_data()
 
     train_data, val_data, test_data, feature_names = prepare_data(
         train_data,
@@ -259,31 +342,23 @@ def main(args):
         use_subset=selected_features if args.use_feature_selection else None,
     )
 
-    # Get the data balance
-    data_balance = get_data_balance(train_data[1], val_data[1], test_data[1])
-
     # Setup for hyperparameter optimization
     study_name = f"{args.resampling_method}_{args.model_type.lower()}"
-
-    if args.do_hyperparameter_tuning:
-        study = optuna.create_study(
-            direction="maximize",
-            study_name=study_name,
-            sampler=optuna.samplers.TPESampler(seed=args.seed)
-        )
-
-        # Run optimization
-        study.optimize(
-            lambda trial: objective(trial, train_data, val_data, args.model_type, args.metric_to_optimize),
-            n_trials=args.n_trials,
-            timeout=args.timeout  # in seconds
-        )
-
-        # Get best parameters and train final model
-        best_params = study.best_params
-
-    else:
-        best_params = load_best_params(results_path_history, f"{study_name}_optimization_history.json")
+    
+    best_params = optimize_hyperparameters(
+        model_type=args.model_type,
+        train_data=train_data,
+        val_data=val_data,
+        study_name=study_name,
+        results_path_history=results_path_history,
+        use_default_values=args.use_default_values,
+        do_within_comparison=args.do_within_comparison,
+        do_hyperparameter_tuning=args.do_hyperparameter_tuning,
+        n_trials=args.n_trials,
+        timeout=args.timeout,
+        metric_to_optimize=args.metric_to_optimize,
+        seed=args.seed
+    )
 
     best_model = get_ml_model(args.model_type, best_params)
     best_model.fit(train_data[0], train_data[1])
@@ -292,18 +367,13 @@ def main(args):
     evaluate_classifier(
         best_model, train_data, val_data, test_data,
         save_path=results_path_best_performance,
-        save_name=f"{study_name}_best_performance_results_feature_selection.json" if args.use_feature_selection else f"{study_name}_best_performance_results.json",
+        save_name=get_save_name(
+            study_name, add_within_comparison=args.do_within_comparison,
+            use_default_values=args.use_default_values, 
+            use_feature_selection=args.use_feature_selection,
+            bootstrap=False
+        ),
         verbose=args.verbose)
-
-    # Evalate within setting
-    if args.add_within_comparison:
-        best_model.fit(train_data_within[0], train_data_within[1])
-        # Evaluate final model
-        evaluate_classifier(
-            best_model, train_data=train_data, test_data=test_data,
-            save_path=results_path_best_performance,
-            save_name=f"WITHIN_{study_name}_best_performance_results_feature_selection.json" if args.use_feature_selection else f"WITHIN_{study_name}_best_performance_results.json",
-            verbose=args.verbose)
 
     if args.bootstrap_test_results:
         final_bootstrapped_results = bootstrap_test_performance(
@@ -315,44 +385,16 @@ def main(args):
         if args.verbose:
             print(final_bootstrapped_results)
 
-        save_name = f"{study_name}_bootstrapped_feature_selection.json" if args.use_feature_selection else f"{study_name}_bootstrapped.json"
+        save_name=get_save_name(
+            study_name, add_within_comparison=args.do_within_comparison,
+            use_default_values=args.use_default_values,
+            use_feature_selection=args.use_feature_selection,
+            bootstrap=True
+        )
         with open(os.path.join(results_path_bootstrap_performance, save_name), "w") as f:
             json.dump(final_bootstrapped_results, f, indent=4)
 
-        if args.add_within_comparison:
-            final_bootstrapped_results_within = bootstrap_test_performance(
-                best_model,
-                test_data_within,
-                args.bootstrap_samples,
-                args.bootstrap_method,
-            )
-            if args.verbose:
-                print(final_bootstrapped_results_within)
-
-            save_name = f"WITHIN_{study_name}_bootstrapped_feature_selection.json" if args.use_feature_selection else f"WITHIN_{study_name}_bootstrapped.json"
-            with open(os.path.join(results_path_bootstrap_performance, save_name), "w") as f:
-                json.dump(final_bootstrapped_results_within, f, indent=4)
-
-    if args.do_hyperparameter_tuning:
-        # Save study statistics and best parameters
-        study_stats = {
-            "best_params": best_params,
-            "best_value": study.best_value,
-            "n_trials": len(study.trials),
-            "study_name": study_name,
-            "model_type": args.model_type,
-            "optimization_history": [
-                {"number": t.number, "value": t.value, "params": t.params}
-                for t in study.trials
-            ]
-        }
-
-        save_name = f"{study_name}_optimization_history_feature_selection.json" \
-            if args.use_feature_selection else f"{study_name}_optimization_history.json"
-        with open(os.path.join(results_path_history, save_name), "w") as f:
-            json.dump(study_stats, f, indent=4)
-
-    if args.add_calibration_plots:
+    if args.add_calibration_plots and not args.do_within_comparison and not args.use_default_values:
         # Get class 1 probability
         y_pred = best_model.predict_proba(test_data[0])[:, 1]
         plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy, figures_path_root)
@@ -364,8 +406,8 @@ def main(args):
     # Feature coefficients for LR model
     # print(get_feature_importance_model(best_model, feature_names)[:10])
 
-    # XAI now
-    if args.model_type != "rf":
+    # XAI now only for between person
+    if args.model_type != "rf" and not args.do_within_comparison and not args.use_default_values:
         explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
         _, shap_values = create_shap_beeswarm_plot(explainer, test_data[0], figures_path=figures_path_root, study_name=study_name,
                                   feature_selection=args.use_feature_selection, max_display=11)
@@ -410,7 +452,7 @@ if __name__ == "__main__":
                         type=validate_scaler,
                         default="standard_scaler")
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=512, type=int)
+                        default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
@@ -422,6 +464,7 @@ if __name__ == "__main__":
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
+    parser.add_argument("--use_default_values", action="store_true", help="if set, we do not do hyperparameter tuning and use the default values")
     parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
     parser.add_argument("--n_trials", type=int, default=5, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
@@ -440,7 +483,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
 
     parser.add_argument("--add_calibration_plots", action="store_true", help="If set, we will plot calibration plots")
-    parser.add_argument("--add_within_comparison", action="store_true", help="If set, we will also run a within study for comparison reasons.")
+    parser.add_argument("--do_within_comparison", action="store_true", help="If set, we will run a within study for comparison reasons.")
 
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
