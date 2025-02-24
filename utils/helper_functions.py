@@ -445,7 +445,9 @@ def prepare_data(train_data: pd.DataFrame,
     if resampling_method is not None:
         # First encode all available data
         x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
-        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
+
+        if val_data is not None:
+            x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
 
         if test_data is not None:
             x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
@@ -478,7 +480,9 @@ def prepare_data(train_data: pd.DataFrame,
         # If no resampling, just shuffle and encode the data
         train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
         x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
-        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
+
+        if val_data is not None:
+            x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
 
         if test_data is not None:
             x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
