@@ -193,7 +193,6 @@ def main(args):
     create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
     create_directory(figures_path_root)
-
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.add_within_comparison)
 
     if args.use_feature_selection:
@@ -332,7 +331,7 @@ def main(args):
 
             save_name = f"WITHIN_{study_name}_bootstrapped_feature_selection.json" if args.use_feature_selection else f"WITHIN_{study_name}_bootstrapped.json"
             with open(os.path.join(results_path_bootstrap_performance, save_name), "w") as f:
-                json.dump(final_bootstrapped_results, f, indent=4)
+                json.dump(final_bootstrapped_results_within, f, indent=4)
 
     if args.do_hyperparameter_tuning:
         # Save study statistics and best parameters
@@ -411,14 +410,14 @@ if __name__ == "__main__":
                         type=validate_scaler,
                         default="standard_scaler")
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=1000, type=int)
+                        default=512, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm'",
-                        type=validate_ml_model, default="xgboost")
+                        type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
