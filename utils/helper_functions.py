@@ -254,7 +254,6 @@ class ECGDataset:
 
         # Get the total files
         self.total_data = self._load_data(participant_files)
-        print(len(self.total_data.columns))
 
         self.number_mental_stress = self.total_data[self.total_data["category"] == "mental_stress"].count(axis=1)
         self.number_baseline = self.total_data[self.total_data["category"] == "baseline"].count(axis=1)
@@ -431,15 +430,17 @@ def prepare_data(train_data: pd.DataFrame,
     """
     # Handle missing data for provided datasets
     train_data = handle_missing_data(train_data)
-    val_data = handle_missing_data(val_data)
+
+    if val_data is not None:
+        val_data = handle_missing_data(val_data)
     if test_data is not None:
         test_data = handle_missing_data(test_data)
 
-    # Calculate sd1_sd2 feature
-    train_data["sd1_sd2"] = train_data["sd1"] / train_data["sd2"]
-    val_data["sd1_sd2"] = val_data["sd1"] / val_data["sd2"]
-    if test_data is not None:
-        test_data["sd1_sd2"] = test_data["sd1"] / test_data["sd2"]
+    # # Calculate sd1_sd2 feature
+    # train_data["sd1_sd2"] = train_data["sd1"] / train_data["sd2"]
+    # val_data["sd1_sd2"] = val_data["sd1"] / val_data["sd2"]
+    # if test_data is not None:
+    #     test_data["sd1_sd2"] = test_data["sd1"] / test_data["sd2"]
 
     # Use resampling if provided
     if resampling_method is not None:
@@ -459,7 +460,8 @@ def prepare_data(train_data: pd.DataFrame,
             
             # Filter features using boolean mask
             x_train = x_train.iloc[:, use_subset]
-            x_val = x_val.iloc[:, use_subset]
+            if val_data is not None:
+                x_val = x_val.iloc[:, use_subset]
             if test_data is not None:
                 x_test = x_test.iloc[:, use_subset]
 
@@ -494,7 +496,9 @@ def prepare_data(train_data: pd.DataFrame,
 
             # Filter features using boolean mask
             x_train = x_train.iloc[:, use_subset]
-            x_val = x_val.iloc[:, use_subset]
+
+            if val_data is not None:
+                x_val = x_val.iloc[:, use_subset]
             if test_data is not None:
                 x_test = x_test.iloc[:, use_subset]
 
@@ -506,15 +510,19 @@ def prepare_data(train_data: pd.DataFrame,
             "please set a valid scaler. Options: 'min_max', 'standard_scaler'"
         scaler_obj = StandardScaler() if scaler.lower() == "standard_scaler" else MinMaxScaler()
         x_train = scaler_obj.fit_transform(x_train)
-        x_val = scaler_obj.transform(x_val)
+        if val_data is not None:
+            x_val = scaler_obj.transform(x_val)
         if test_data is not None:
             x_test = scaler_obj.transform(x_test)
 
     # Return appropriate tuple based on whether test_data was provided
-    if test_data is not None:
+    if test_data is not None and val_data is not None:
         return (x_train, y_train, label_train), (x_val, y_val, label_val), (x_test, y_test, label_test), feature_names
     else:
-        return (x_train, y_train, label_train), (x_val, y_val, label_val), feature_names
+        if val_data is not None:
+            return (x_train, y_train, label_train), (x_val, y_val, label_val), feature_names
+        else:
+            return (x_train, y_train, label_train), None, (x_test, y_test, label_test), feature_names
 
 
 def normalize_data(train_data: pd.DataFrame) -> tuple:
@@ -1075,7 +1083,7 @@ class FeatureSelectionPipeline:
 
 
 def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,  bin_strategy: str,
-                           save_path: str ):
+                           save_path: str):
     """
     Code adapted from: https://endtoenddatascience.com/chapter11-machine-learning-calibration
     Produces a calibration plot and saves it locally. The raw data behind the plot is also written locally.
