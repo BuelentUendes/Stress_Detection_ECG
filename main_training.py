@@ -43,6 +43,7 @@ LABEL_ABBREVIATION_DICT = {
     "high_physical_activity": "HPA",
     "moderate_physical_activity": "MPA",
     "low_physical_activity": "LPA",
+    "rest": "REST"
 }
 
 
@@ -257,7 +258,8 @@ def optimize_hyperparameters(
     if use_default_values:
         print("We use the default hyperparameter values")
         return {}
-    
+
+    print(f"We load the best parameter set")
     return load_best_params(results_path_history, f"{study_name}_optimization_history.json")
 
 
@@ -454,7 +456,7 @@ if __name__ == "__main__":
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
-    parser.add_argument('--window_shift', type=int, default=10,
+    parser.add_argument('--window_shift', type=float, default=10,
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
@@ -478,7 +480,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
     parser.add_argument("--min_features", type=int, default=5,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=50,
+    parser.add_argument("--max_features", type=int, default=25,
                        help="Maximum number of features to select")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
 
