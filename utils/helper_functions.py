@@ -312,9 +312,13 @@ class ECGDataset:
 #Todo: Extend to multiclass classification
 def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # First drop data that is not either in the positive class or negative class
-    data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
-    # Then label the data 1 for positive and 0 for negative
-    data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
+    if negative_class != "rest":
+        data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
+        # Then label the data 1 for positive and 0 for negative
+        data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
+
+    else:
+        data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     # Split data into x_data and y_data
     x = data.drop(columns=["category", "label"]).reset_index(drop=True) if "label" in list(data.columns) \

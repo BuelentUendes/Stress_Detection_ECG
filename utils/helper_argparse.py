@@ -9,7 +9,7 @@ def validate_scaler(value: str) -> str:
 
 def validate_category(value: str) -> str:
     valid_categories = ['high_physical_activity', 'mental_stress', 'baseline',
-                        'low_physical_activity', 'moderate_physical_activity']
+                        'low_physical_activity', 'moderate_physical_activity', 'rest']
     if value.lower() not in valid_categories:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {valid_categories}.")
