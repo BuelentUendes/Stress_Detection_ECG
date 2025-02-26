@@ -657,12 +657,6 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
     idx_per_per_subcategory = get_idx_per_subcategory(test_data[1], test_data[2])
 
-    for key, idx in idx_per_per_subcategory.items():
-        x = test_data[0][idx]
-        y = test_data[1][idx]
-
-
-
     def get_pr_curve(y_true:np.array, y_score: np.array) -> float:
         pr_auc = metrics.average_precision_score(y_true, y_score)
         return pr_auc
@@ -681,10 +675,20 @@ def evaluate_classifier(ml_model: BaseEstimator,
         results['val_pr_auc'] = round_result(get_pr_curve(val_data[1], ml_model.predict_proba(val_data[0])[:, 1])) if val_data is not None else None
         results['test_pr_auc'] = round_result(get_pr_curve(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
 
+        for key, idx in idx_per_per_subcategory.items():
+            results["test_pr_auc" + f"_{key}"] = round_result(
+                get_pr_curve(test_data[1][idx], ml_model.predict.proba(test_data[0][idx])[:, 1])
+            )
+
         # ROC AUC
         results['train_roc_auc'] = round_result(metrics.roc_auc_score(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
         results['val_roc_auc'] = round_result(metrics.roc_auc_score(val_data[1], ml_model.predict_proba(val_data[0])[:, 1])) if val_data is not None else None
         results['test_roc_auc'] = round_result(metrics.roc_auc_score(test_data[1], ml_model.predict_proba(test_data[0])[:, 1]))
+
+        for key, idx in idx_per_per_subcategory.items():
+            results["test_roc_auc" + f"_{key}"] = round_result(
+                get_roc_curve(test_data[1][idx], ml_model.predict.proba(test_data[0][idx])[:, 1])
+            )
 
     else:
         raise NotImplementedError("We have not yet implemented multiclass classification")
