@@ -617,17 +617,31 @@ def get_data_balance(train_data:np.array, val_data: np.array, test_data: np.arra
     return data_balance
 
 
-def get_idx_per_subcategory(y_data, label, positive_class=True):
+def get_idx_per_subcategory(y_data, label, positive_class=True, include_other_class=True):
 
     combined_df = pd.concat([y_data, label], axis=1)
+    class_1 = len(y_data[y_data == 1.0])
+    ratio_1 = np.round((class_1 / len(y_data)), 4)
+
     label_df = combined_df[combined_df["category"] == 1.0 if positive_class else combined_df["category"] == 0.0]
+    if include_other_class:
+        # Some metrics such as roc_auc need to have negative examples as well
+        other_class = combined_df[combined_df["category"] == 0.0 if positive_class else combined_df["category"] == 1.0]
+        other_class_idx = list(other_class.index.values)
 
     subcategories = list(set(label_df["label"].values))
 
-    idx_per_subcategory = {
-        category: label_df[label_df["label"]==category].index.values
-    for category in subcategories
-    }
+    idx_per_subcategory = {}
+
+    for category in subcategories:
+        idx_values = list(label_df[label_df["label"]==category].index.values)
+        # we need to sample len(x) (1-ratio) / ratio(1) to get the same ratio 1/0
+        if include_other_class:
+            sampled_negative_class = np.random.choice(
+                other_class_idx, replace=False, size=int(((1-ratio_1) * len(idx_values))/ratio_1)
+            )
+            idx_values.extend(list(sampled_negative_class))
+        idx_per_subcategory[category] = idx_values
 
     return idx_per_subcategory
 
