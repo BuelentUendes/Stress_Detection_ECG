@@ -694,6 +694,11 @@ def evaluate_classifier(ml_model: BaseEstimator,
                 get_pr_curve(test_data[1][idx], ml_model.predict_proba(test_data[0][idx])[:, 1])
             )
 
+        for key, idx in idx_per_per_subcategory.items():
+            results["test_balanced_auc" + f"_{key}"] = round_result(
+                metrics.balanced_accuracy_score(test_data[1][idx], ml_model.predict(test_data[0][idx]))
+            )
+
         # ROC AUC
         results['train_roc_auc'] = round_result(metrics.roc_auc_score(train_data[1], ml_model.predict_proba(train_data[0])[:, 1]))
         results['val_roc_auc'] = round_result(metrics.roc_auc_score(val_data[1], ml_model.predict_proba(val_data[0])[:, 1])) if val_data is not None else None
