@@ -677,7 +677,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
         for key, idx in idx_per_per_subcategory.items():
             results["test_pr_auc" + f"_{key}"] = round_result(
-                get_pr_curve(test_data[1][idx], ml_model.predict.proba(test_data[0][idx])[:, 1])
+                get_pr_curve(test_data[1][idx], ml_model.predict_proba(test_data[0][idx])[:, 1])
             )
 
         # ROC AUC
@@ -687,7 +687,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
         for key, idx in idx_per_per_subcategory.items():
             results["test_roc_auc" + f"_{key}"] = round_result(
-                get_roc_curve(test_data[1][idx], ml_model.predict.proba(test_data[0][idx])[:, 1])
+                metrics.get_roc_curve(test_data[1][idx], ml_model.predict_proba(test_data[0][idx])[:, 1])
             )
 
     else:
