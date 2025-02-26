@@ -687,7 +687,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
         for key, idx in idx_per_per_subcategory.items():
             results["test_roc_auc" + f"_{key}"] = round_result(
-                metrics.get_roc_score(test_data[1][idx], ml_model.predict_proba(test_data[0][idx])[:, 1])
+                metrics.roc_auc_score(test_data[1][idx], ml_model.predict_proba(test_data[0][idx])[:, 1])
             )
 
     else:
