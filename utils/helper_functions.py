@@ -617,6 +617,22 @@ def get_data_balance(train_data:np.array, val_data: np.array, test_data: np.arra
     return data_balance
 
 
+def get_idx_per_subcategory(y_data, label, positive_class=True):
+
+    combined_df = pd.concat([y_data, label], axis=1)
+    label_df = combined_df[combined_df["category"] == 1.0 if positive_class else combined_df["category"] == 0.0]
+
+    subcategories = list(set(label_df["label"].values))
+
+    idx_per_subcategory = {
+        category: label_df[label_df["label"]==category].index.values
+    for category in subcategories
+    }
+
+    return idx_per_subcategory
+
+
+
 def evaluate_classifier(ml_model: BaseEstimator,
                         train_data: tuple[np.ndarray, np.ndarray],
                         val_data: Optional[tuple[np.ndarray, np.ndarray]] = None,
@@ -638,6 +654,14 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
     def round_result(value: float) -> float:
         return np.round(value, 4)
+
+    idx_per_per_subcategory = get_idx_per_subcategory(test_data[1], test_data[2])
+
+    for key, idx in idx_per_per_subcategory.items():
+        x = test_data[0][idx]
+        y = test_data[1][idx]
+
+
 
     def get_pr_curve(y_true:np.array, y_score: np.array) -> float:
         pr_auc = metrics.average_precision_score(y_true, y_score)
