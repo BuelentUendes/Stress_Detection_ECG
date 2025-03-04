@@ -178,7 +178,7 @@ def get_save_name(study_name: str, add_within_comparison: bool,
         use_default_values: Boolean. If set, we do not do hyperparameter tuning and use the default values
         use_feature_selection: Boolean. If set, we use feature selection
         bootstrap. Boolean. If set, we use bootstrap
-        subcategories. Boolean. If wet, we bootstraped subcategories
+        subcategories. Boolean. If wet, we bootstrapped subcategories
     
     Returns:
         str: Filename for saving results
@@ -188,11 +188,12 @@ def get_save_name(study_name: str, add_within_comparison: bool,
     middle = "DEFAULT_" if use_default_values else ""
     suffix = "_feature_selection" if use_feature_selection else ""
     if bootstrap:
-        end = "_boootstrapped_subcategories" if subcategories else "_bootstrapped"
+        end = "_bootstrapped_subcategories" if subcategories else "_bootstrapped"
     else:
         end = ""
 
-    return f"{prefix}{middle}{study_name}_best_performance_results{suffix}{end}.json"
+    return f"{prefix}{middle}{study_name}_best_performance_results{suffix}{end}.json" if not bootstrap else \
+        f"{prefix}{middle}{study_name}{suffix}{end}.json"
 
 def optimize_hyperparameters(
     model_type: str,
@@ -470,7 +471,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="baseline",
+    parser.add_argument("--negative_class", help="Which category should be 0", default="rest",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
@@ -521,7 +522,6 @@ if __name__ == "__main__":
 
     args.verbose = True
     args.bootstrap_test_results = True
-    args.bootstrap_subcategories = True
 
     # Set seed for reproducibility
     set_seed(args.seed)
