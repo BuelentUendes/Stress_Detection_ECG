@@ -167,7 +167,9 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
         return None
 
 def get_save_name(study_name: str, add_within_comparison: bool,
-                  use_default_values: bool, use_feature_selection: bool, bootstrap: bool) -> str:
+                  use_default_values: bool, use_feature_selection: bool,
+                  bootstrap: bool,
+                  subcategories: bool) -> str:
     """Generate the save filename based on the configuration.
     
     Args:
@@ -176,6 +178,7 @@ def get_save_name(study_name: str, add_within_comparison: bool,
         use_default_values: Boolean. If set, we do not do hyperparameter tuning and use the default values
         use_feature_selection: Boolean. If set, we use feature selection
         bootstrap. Boolean. If set, we use bootstrap
+        subcategories. Boolean. If wet, we bootstraped subcategories
     
     Returns:
         str: Filename for saving results
@@ -184,8 +187,11 @@ def get_save_name(study_name: str, add_within_comparison: bool,
     prefix = "WITHIN_" if add_within_comparison else ""
     middle = "DEFAULT_" if use_default_values else ""
     suffix = "_feature_selection" if use_feature_selection else ""
-    end = "_boootstrapped" if bootstrap else ""
-    
+    if bootstrap:
+        end = "_boootstrapped_subcategories" if subcategories else "_bootstrapped"
+    else:
+        end = ""
+
     return f"{prefix}{middle}{study_name}_best_performance_results{suffix}{end}.json"
 
 def optimize_hyperparameters(
@@ -373,28 +379,45 @@ def main(args):
             study_name, add_within_comparison=args.do_within_comparison,
             use_default_values=args.use_default_values, 
             use_feature_selection=args.use_feature_selection,
-            bootstrap=False
+            bootstrap=False,
+            subcategories=False,
         ),
         verbose=args.verbose)
 
     if args.bootstrap_test_results:
-        final_bootstrapped_results = bootstrap_test_performance(
+        final_bootstrapped_results, final_bootstrapped_results_subcategories = bootstrap_test_performance(
             best_model,
             test_data,
             args.bootstrap_samples,
             args.bootstrap_method,
+            args.bootstrap_subcategories
         )
         if args.verbose:
             print(final_bootstrapped_results)
 
-        save_name=get_save_name(
+        save_name_overall=get_save_name(
             study_name, add_within_comparison=args.do_within_comparison,
             use_default_values=args.use_default_values,
             use_feature_selection=args.use_feature_selection,
-            bootstrap=True
+            bootstrap=True,
+            subcategories=False
         )
-        with open(os.path.join(results_path_bootstrap_performance, save_name), "w") as f:
+
+        with open(os.path.join(results_path_bootstrap_performance, save_name_overall), "w") as f:
             json.dump(final_bootstrapped_results, f, indent=4)
+
+        if args.bootstrap_subcategories:
+            save_name_subcategories = get_save_name(
+                study_name, add_within_comparison=args.do_within_comparison,
+                use_default_values=args.use_default_values,
+                use_feature_selection=args.use_feature_selection,
+                bootstrap=True,
+                subcategories=True
+            )
+
+            with open(os.path.join(results_path_bootstrap_performance, save_name_subcategories), "w") as f:
+                json.dump(final_bootstrapped_results_subcategories, f, indent=4)
+
 
     if args.add_calibration_plots and not args.do_within_comparison and not args.use_default_values:
         # Get class 1 probability
@@ -476,6 +499,8 @@ if __name__ == "__main__":
                         default=200, type=int)
     parser.add_argument("--bootstrap_method", help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
                         default="quantile")
+    parser.add_argument("--bootstrap_subcategories", action="store_true",
+                        help="If enabled, we also bootstrap the subcategories and get CI for these.")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
     parser.add_argument("--min_features", type=int, default=5,
@@ -495,6 +520,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.verbose = True
+    args.bootstrap_test_results = True
+    args.bootstrap_subcategories = True
 
     # Set seed for reproducibility
     set_seed(args.seed)
@@ -507,13 +534,4 @@ if __name__ == "__main__":
     # Useful discussion for the choice of evaluation metrics:
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
 
-    #ToDo:
-    # Get the right transformation for each of the features (min-max scaling, log transform if data is heavily skewed)
-    # Feature selection:
-    # First do some initial hyperparameter on the val set (for lets say 10 trials) via Bayesian Hyperparameter tuning
-    # Save the best configs and then we can load it
-    # Run then the finetuning on the selected features
-    # take the best config,
-    # And then do the feature selection on it)
-    # Finetune
 
