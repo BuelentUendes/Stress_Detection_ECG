@@ -725,10 +725,67 @@ def evaluate_classifier(ml_model: BaseEstimator,
     return results
 
 
+def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame], 
+                       y_test: Union[np.ndarray, pd.Series]) -> tuple[Union[np.ndarray, pd.DataFrame], 
+                                                                    Union[np.ndarray, pd.Series]]:
+    n_samples = len(X_test)
+    # Resample the dataset with replacement
+    indices = np.random.choice(n_samples, size=n_samples, replace=True)
+    
+    # Handle both pandas and numpy inputs
+    if isinstance(X_test, pd.DataFrame):
+        X_bootstrapped = X_test.iloc[indices]
+    else:
+        X_bootstrapped = X_test[indices]
+        
+    if isinstance(y_test, pd.Series):
+        y_bootstrapped = y_test.iloc[indices]
+    else:
+        y_bootstrapped = y_test[indices]
+
+    return X_bootstrapped, y_bootstrapped
+
+
+def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap):
+    # Get predictions
+    y_pred_proba = model.predict_proba(X_bootstrap)[:, 1]
+    y_pred = model.predict(X_bootstrap)
+
+    # Calculate metrics
+    roc_auc = metrics.roc_auc_score(y_bootstrap, y_pred_proba)
+    pr_auc = metrics.average_precision_score(y_bootstrap, y_pred_proba)
+    balanced_accuracy = metrics.balanced_accuracy_score(y_bootstrap, y_pred)
+
+    return roc_auc, pr_auc, balanced_accuracy
+
+
+def get_confidence_interval_mean(results: dict, bootstrap_method: str) -> dict:
+    # Calculate confidence intervals and means
+    final_results = {}
+    for metric in results.keys():
+        values = np.array(results[metric])
+        mean_val = np.mean(values)
+        if bootstrap_method == "quantile":
+            ci_lower = np.percentile(values, 2.5)  # 2.5th percentile for lower bound
+            ci_upper = np.percentile(values, 97.5)  # 97.5th percentile for upper bound
+        else:
+            raise NotImplementedError("We have not implemented 'se' and 'BCa'")
+
+        final_results[metric] = {
+            'mean': np.round(mean_val, 4),
+            'ci_lower': np.round(ci_lower, 4),
+            'ci_upper': np.round(ci_upper, 4)
+        }
+
+    return final_results
+
+
 def bootstrap_test_performance(model: BaseEstimator,
-                               test_data: tuple[np.ndarray, np.ndarray],
-                               bootstrap_samples: int,
-                               bootstrap_method: str) -> dict[str, float]:
+                             test_data: tuple[np.ndarray, np.ndarray],
+                             bootstrap_samples: int,
+                             bootstrap_method: str,
+                             bootstrap_subcategories: bool = True) -> tuple[dict[str, dict[str, float]], 
+                                                                         dict[str, dict[str, dict[str, float]]] | None]:
     """
     Performs bootstrap resampling to estimate model performance metrics and their confidence intervals.
     
@@ -753,48 +810,63 @@ def bootstrap_test_performance(model: BaseEstimator,
             }
     """
     X_test, y_test, label_test = test_data
-    n_samples = len(X_test)
-    
+
     # Initialize results dictionary
     results = {
         'roc_auc': [],
         'pr_auc': [],
         'balanced_accuracy': []
     }
-    
-    for _ in range(bootstrap_samples):
-        # Resample the dataset with replacement
-        indices = np.random.choice(n_samples, size=n_samples, replace=True)
-        X_bootstrap = X_test[indices]
-        y_bootstrap = y_test[indices]
-        
-        # Get predictions
-        y_pred_proba = model.predict_proba(X_bootstrap)[:, 1]
-        y_pred = model.predict(X_bootstrap)
-        
-        # Calculate metrics
-        results['roc_auc'].append(metrics.roc_auc_score(y_bootstrap, y_pred_proba))
-        results['pr_auc'].append(metrics.average_precision_score(y_bootstrap, y_pred_proba))
-        results['balanced_accuracy'].append(metrics.balanced_accuracy_score(y_bootstrap, y_pred))
-    
-    # Calculate confidence intervals and means
-    final_results = {}
-    for metric in results.keys():
-        values = np.array(results[metric])
-        mean_val = np.mean(values)
-        if bootstrap_method == "quantile":
-            ci_lower = np.percentile(values, 2.5)  # 2.5th percentile for lower bound
-            ci_upper = np.percentile(values, 97.5)  # 97.5th percentile for upper bound
-        else:
-            raise NotImplementedError("We have not implemented 'se' and 'BCa'")
 
-        final_results[metric] = {
-            'mean': np.round(mean_val, 4),
-            'ci_lower': np.round(ci_lower, 4),
-            'ci_upper': np.round(ci_upper, 4)
+    if bootstrap_subcategories:
+
+        idx_per_subcategory = get_idx_per_subcategory(y_test, label_test, positive_class=True, include_other_class=True)
+
+        subcategory_results = {
+            category: {
+                'roc_auc': [],
+                'pr_auc': [],
+                'balanced_accuracy': []
+            }
+            for category in idx_per_subcategory.keys()
         }
-    
-    return final_results
+
+    for _ in range(bootstrap_samples):
+        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test)
+        # Get predictions
+        roc_auc, pr_auc, balanced_accuracy_score = get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap)
+
+        results['roc_auc'].append(roc_auc)
+        results['pr_auc'].append(pr_auc)
+        results['balanced_accuracy'].append(balanced_accuracy_score)
+
+        if bootstrap_subcategories:
+            for category, idx_category in idx_per_subcategory.items():
+                # Get the subcategory data
+                X_subcategory = X_test.iloc[idx_category] if isinstance(X_test, pd.DataFrame) else X_test[idx_category]
+                y_subcategory = y_test.iloc[idx_category] if isinstance(y_test, pd.Series) else y_test[idx_category]
+                
+                # Perform bootstrap resampling on the subcategory data
+                X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory)
+                
+                # Get predictions
+                roc_auc, pr_auc, balanced_accuracy_score = get_performance_metric_bootstrapped(model, X_bootstrap,
+                                                                                               y_bootstrap)
+
+                subcategory_results[category]['roc_auc'].append(roc_auc)
+                subcategory_results[category]['pr_auc'].append(pr_auc)
+                subcategory_results[category]['balanced_accuracy'].append(balanced_accuracy_score)
+
+    # Calculate confidence intervals and means
+    final_results = get_confidence_interval_mean(results, bootstrap_method)
+
+    if bootstrap_subcategories:
+        final_results_subcategories = {}
+
+        for category, results_category in subcategory_results.items():
+            final_results_subcategories[category] = get_confidence_interval_mean(results_category, bootstrap_method)
+
+    return final_results, final_results_subcategories if bootstrap_subcategories else None
 
 
 def load_yaml_config_file(path_to_yaml_file: str):
