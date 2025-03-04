@@ -47,6 +47,7 @@ LABEL_ABBREVIATION_DICT = {
     "high_physical_activity": "HPA",
     "moderate_physical_activity": "MPA",
     "low_physical_activity": "LPA",
+    "rest": "REST",
 }
 
 
@@ -310,7 +311,7 @@ def main(args):
     figures_path = os.path.join(FIGURES_PATH, str(args.sample_frequency),
                                     str(args.window_size), comparison)
     # We use this to either get the results from smote or not
-    resampled_bool = True if args.negative_class in ["low_physical_activity", "moderate_physical_activity"] else False
+    resampled_bool = True if args.negative_class in ["low_physical_activity", "moderate_physical_activity", "rest"] else False
 
     # Collect results for all frequencies
     bootstrapped_results = {}
@@ -344,7 +345,11 @@ def main(args):
             print(f"{model} does not have the results, we skip it.")
             continue
 
-    plot_feature_selection(feature_selection_results, figures_path)
+    try:
+        plot_feature_selection(feature_selection_results, figures_path)
+    except StopIteration:
+        print(f"We could not find the file")
+
     # Plot bootstrap comparisons for each metric
     metrics = ['roc_auc', 'pr_auc', 'balanced_accuracy']
     for metric in metrics:
@@ -366,10 +371,10 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="baseline",
+    parser.add_argument("--negative_class", help="Which category should be 0", default="rest",
                         type=validate_category)
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=1000, type=int)
+                        default=256, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
@@ -378,7 +383,7 @@ if __name__ == "__main__":
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
              "'knn', 'lr', 'xgboost', 'qda', 'svm'",
         type=validate_models,
-        default="lr,xgboost,rf"
+        default="lr, xgboost, rf"
     )
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
@@ -389,5 +394,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(args)
 
-    #ToDo:
-    # Plot feature selection history with #number of features against the feature
+
