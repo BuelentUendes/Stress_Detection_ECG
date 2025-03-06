@@ -67,7 +67,6 @@ def set_seed(seed_number: int) -> None:
     np.random.seed(seed_number)
     random.seed(seed_number)
 
-
 def get_data_folders(input_path: str) -> list[str]:
     """
     Loads the data and from the input_path
@@ -724,9 +723,9 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
     return results
 
-
 def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame], 
-                       y_test: Union[np.ndarray, pd.Series]) -> tuple[Union[np.ndarray, pd.DataFrame], 
+                       y_test: Union[np.ndarray, pd.Series],
+                       seed: Optional[int] = 42) -> tuple[Union[np.ndarray, pd.DataFrame],
                                                                     Union[np.ndarray, pd.Series]]:
     n_samples = len(X_test)
     # Resample the dataset with replacement
@@ -1065,7 +1064,7 @@ class FeatureSelectionPipeline:
             dict: Best hyperparameters
         """
         # Create Optuna study
-        study = optuna.create_study(direction="maximize")
+        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=42))
         
         # Get model type string from base_estimator class
         model_type = None
