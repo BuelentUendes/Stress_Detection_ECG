@@ -387,6 +387,7 @@ def main(args):
         verbose=args.verbose)
 
     if args.bootstrap_test_results:
+        set_seed(args.seed)
         final_bootstrapped_results, final_bootstrapped_results_subcategories = bootstrap_test_performance(
             best_model,
             test_data,
