@@ -905,6 +905,7 @@ class FeatureSelectionPipeline:
 
     def __init__(self, 
                  base_estimator: BaseEstimator,
+                 feature_names: str,
                  n_features_range: list[int],
                  n_splits: int = 5,
                  n_trials: int = 15,
@@ -922,6 +923,7 @@ class FeatureSelectionPipeline:
             random_state: Random seed
         """
         self.base_estimator = base_estimator
+        self.feature_names = feature_names
         self.n_features_range = n_features_range
         self.n_trials = n_trials
         self.n_splits = n_splits
@@ -1181,7 +1183,8 @@ class FeatureSelectionPipeline:
             'best_score': float(np.max(scores)),  # Convert numpy float to Python float
             'best_n_features': int(best_n_features),  # Convert numpy int to Python int
             'best_params': best_params,
-            'feature_selection_mask': [bool(mask) for mask in self.best_features_mask],  # Convert numpy bools to Python bools
+            'feature_selection_mask': [(feature_name, bool(mask)) for feature_name, mask in
+                                       zip(self.feature_names, self.best_features_mask)],
         }
         self.feature_importance = {
             str(name): {  # Ensure keys are strings
