@@ -319,6 +319,7 @@ def main(args):
         # Initialize feature selection pipeline
         feature_selector = FeatureSelectionPipeline(
             base_estimator=base_estimator,
+            feature_names= feature_names,
             n_features_range=range(args.min_features, args.max_features + 1),
             n_splits=args.n_splits,
             n_trials=10,
@@ -426,8 +427,6 @@ def main(args):
         plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy, figures_path_root)
 
     # Get the feature importance:
-    # Getting the feature names in a better format
-    feature_names = [name.replace("_", " ") for name in feature_names]
 
     # Feature coefficients for LR model
     # print(get_feature_importance_model(best_model, feature_names)[:10])
@@ -469,17 +468,21 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
-    parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
+    parser.add_argument("--positive_class", help="Which category should be 1",
+                        default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="rest",
+    parser.add_argument("--negative_class", help="Which category should be 0",
+                        default="baseline",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
                         type=validate_scaler,
                         default="standard_scaler")
-    parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
+    parser.add_argument("--sample_frequency",
+                        help="which sample frequency to use for the training",
                         default=1000, type=int)
-    parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
+    parser.add_argument("--window_size", type=int, default=60,
+                        help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=float, default=10,
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
@@ -490,28 +493,35 @@ if __name__ == "__main__":
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
-    parser.add_argument("--use_default_values", action="store_true", help="if set, we do not do hyperparameter tuning and use the default values")
-    parser.add_argument("--do_hyperparameter_tuning", action="store_true", help="if set, we do hyperparameter tuning")
-    parser.add_argument("--n_trials", type=int, default=5, help="Number of optimization trials for Optuna")
+    parser.add_argument("--use_default_values", action="store_true",
+                        help="if set, we do not do hyperparameter tuning and use the default values")
+    parser.add_argument("--do_hyperparameter_tuning", action="store_true",
+                        help="if set, we do hyperparameter tuning")
+    parser.add_argument("--n_trials", type=int, default=25, help="Number of optimization trials for Optuna")
     parser.add_argument("--metric_to_optimize", type=validate_target_metric, default="roc_auc")
     parser.add_argument("--bootstrap_test_results", action="store_true",
                         help="if set, we use bootstrapping to get uncertainty estimates of the test performance.")
     parser.add_argument("--bootstrap_samples", help="number of bootstrap samples.",
                         default=200, type=int)
-    parser.add_argument("--bootstrap_method", help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
+    parser.add_argument("--bootstrap_method",
+                        help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
                         default="quantile")
     parser.add_argument("--bootstrap_subcategories", action="store_true",
                         help="If enabled, we also bootstrap the subcategories and get CI for these.")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
-    parser.add_argument("--use_feature_selection", action="store_true", help="Boolean. If set, we use feature selection")
-    parser.add_argument("--min_features", type=int, default=5,
+    parser.add_argument("--use_feature_selection", action="store_true",
+                        help="Boolean. If set, we use feature selection")
+    parser.add_argument("--min_features", type=int, default=10,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=25,
+    parser.add_argument("--max_features", type=int, default=20,
                        help="Maximum number of features to select")
-    parser.add_argument("--n_splits", help="Number of splits used for feature selection.", type=int, default=5)
+    parser.add_argument("--n_splits", help="Number of splits used for feature selection.",
+                        type=int, default=5)
 
-    parser.add_argument("--add_calibration_plots", action="store_true", help="If set, we will plot calibration plots")
-    parser.add_argument("--do_within_comparison", action="store_true", help="If set, we will run a within study for comparison reasons.")
+    parser.add_argument("--add_calibration_plots", action="store_true",
+                        help="If set, we will plot calibration plots")
+    parser.add_argument("--do_within_comparison", action="store_true",
+                        help="If set, we will run a within study for comparison reasons.")
 
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
@@ -522,6 +532,8 @@ if __name__ == "__main__":
 
     args.verbose = True
     args.bootstrap_test_results = True
+    args.bootstrap_subcategories = True
+    args.use_feature_selection = True
 
     # Set seed for reproducibility
     set_seed(args.seed)
@@ -535,3 +547,7 @@ if __name__ == "__main__":
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
 
 
+    # ToDo:
+    #Logg how many samples are removed
+    #Get more information on what features are selected
+    #Combat overfitting XGboost -> eliminate some randomness it seems (
