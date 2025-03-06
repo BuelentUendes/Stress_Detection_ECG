@@ -729,7 +729,12 @@ def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame],
                                                                     Union[np.ndarray, pd.Series]]:
     n_samples = len(X_test)
     # Resample the dataset with replacement
-    indices = np.random.choice(n_samples, size=n_samples, replace=True)
+    # Create a controlled random state for reproducibility
+    rng = np.random.RandomState(seed)
+
+    # Resample the dataset with replacement using the controlled random state
+    indices = rng.choice(n_samples, size=n_samples, replace=True)
+    # indices = np.random.choice(n_samples, size=n_samples, replace=True)
     
     # Handle both pandas and numpy inputs
     if isinstance(X_test, pd.DataFrame):
@@ -830,8 +835,8 @@ def bootstrap_test_performance(model: BaseEstimator,
             for category in idx_per_subcategory.keys()
         }
 
-    for _ in range(bootstrap_samples):
-        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test)
+    for idx in range(bootstrap_samples):
+        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
         # Get predictions
         roc_auc, pr_auc, balanced_accuracy_score = get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap)
 
@@ -846,7 +851,7 @@ def bootstrap_test_performance(model: BaseEstimator,
                 y_subcategory = y_test.iloc[idx_category] if isinstance(y_test, pd.Series) else y_test[idx_category]
                 
                 # Perform bootstrap resampling on the subcategory data
-                X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory)
+                X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory, seed=idx)
                 
                 # Get predictions
                 roc_auc, pr_auc, balanced_accuracy_score = get_performance_metric_bootstrapped(model, X_bootstrap,
