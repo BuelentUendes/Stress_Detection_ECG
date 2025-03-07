@@ -28,6 +28,7 @@ from sklearn.base import BaseEstimator, clone
 from sklearn.utils import resample
 from sklearn.dummy import DummyClassifier
 from sklearn.calibration import calibration_curve
+from sklearn.mixture import GaussianMixture
 
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -335,6 +336,7 @@ class ECGDataset:
                 plt.close()
             else:
                 plt.show()
+                plt.close()
 
         # Plot histograms for each category
         for category, color in colors.items():
@@ -701,6 +703,7 @@ def get_ml_model(model: str, params: dict = None):
         "qda": {},
         "svm": {"kernel": "rbf", "C": 1.0, "gamma": 0.7},
         "random_baseline": {"strategy": "prior"},
+        "gmm": {"n_components": 2},
     }
 
     # Map model names to their corresponding classes
@@ -715,7 +718,8 @@ def get_ml_model(model: str, params: dict = None):
         "xgboost": xgb.XGBClassifier,
         "qda": QuadraticDiscriminantAnalysis,
         "svm": SVC,
-        "random_baseline": DummyClassifier
+        "random_baseline": DummyClassifier,
+        "gmm": GaussianMixture,
     }
 
     if model.lower() not in model_classes:
