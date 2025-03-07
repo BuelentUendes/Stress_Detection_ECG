@@ -495,7 +495,7 @@ if __name__ == "__main__":
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
-                                             "'knn', 'lr', 'xgboost', 'qda', 'svm'",
+                                             "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline",
                         type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
@@ -554,7 +554,16 @@ if __name__ == "__main__":
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
 
 
-    # ToDo:
-    #Logg how many samples are removed
-    #Get more information on what features are selected
+    #ToDo:
+    # Be able to run model on specific subset of features
+    # Classify performance MS - LPA and MS -MPA (very similar though) solely on mean heart rate and compare with dummy classifier
+    # Logging how many samples are removed
+    # Check distribution of the underlying features
+    # Alternative feature selection process -> mutual information, backward selection
+    # Combat overfitting of XGboost
+    # Check the preprocessing/feature engineering pipeline once more! -> must be somehow ways to improve the performance
+
     #Combat overfitting XGboost
+
+    #In-depth gaussian mixture model:
+    # https://jakevdp.github.io/PythonDataScienceHandbook/05.12-gaussian-mixtures.html
