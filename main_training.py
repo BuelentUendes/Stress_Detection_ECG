@@ -79,23 +79,23 @@ def objective(trial: Trial,
     elif model_type.lower() == "xgboost":
         params = {
             # Reduce from 300 to focus on preventing overfitting
-            'n_estimators': trial.suggest_int('n_estimators', 25, 200),
+            'n_estimators': trial.suggest_int('n_estimators', 75, 150),
             # Reduce max_depth to prevent overfitting
-            'max_depth': trial.suggest_int('max_depth', 2, 8),
-            # Slower learning rate for better generalization
-            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+            'max_depth': trial.suggest_int('max_depth', 2, 4),
+            # lower learning rate for better generalization
+            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.05, log=True),
 
-            # Increase minimum values for stronger regularization
-            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+            'subsample': trial.suggest_float('subsample', 0.3, 0.6),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 0.7),
 
             # Increase regularization range
-            'reg_lambda': trial.suggest_float('reg_lambda', 0.1, 1.0),
-            'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 2.0),
+            'reg_lambda': trial.suggest_float('reg_lambda', 15., 25.0),
+            'reg_alpha': trial.suggest_float('reg_alpha', 15., 25.0),
 
             'use_label_encoder': False,
             'n_jobs': -1
         }
+
     elif model_type.lower() == "dt":
         params = {
             'max_depth': trial.suggest_int('max_depth', 3, 30),
@@ -290,6 +290,7 @@ def main(args):
     results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
 
     # Figures path
+    figures_path_hist = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison)
     figures_path_root = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison,
                                      args.model_type.lower())
 
@@ -299,6 +300,9 @@ def main(args):
     create_directory(results_path_bootstrap_performance)
     create_directory(figures_path_root)
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
+
+    ecg_dataset.get_average_hr_reactivity(args.positive_class, args.negative_class, save_path=figures_path_hist, show_plot=False)
+    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
@@ -310,7 +314,8 @@ def main(args):
             positive_class=args.positive_class,
             negative_class=args.negative_class,
             resampling_method=args.resampling_method,
-            scaler=args.standard_scaler
+            scaler=args.standard_scaler,
+            use_quantile_transformer=args.use_quantile_transformer,
         )
 
         # Create base estimator
@@ -349,6 +354,7 @@ def main(args):
         negative_class=args.negative_class,
         resampling_method=args.resampling_method,
         scaler=args.standard_scaler,
+        use_quantile_transformer = args.use_quantile_transformer,
         use_subset=selected_features if args.use_feature_selection else None,
     )
 
@@ -479,6 +485,7 @@ if __name__ == "__main__":
                                                   "Choose from 'standard_scaler' or 'min_max'",
                         type=validate_scaler,
                         default="standard_scaler")
+    parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
                         default=1000, type=int)
@@ -534,7 +541,6 @@ if __name__ == "__main__":
     args.verbose = True
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
-    args.use_feature_selection = True
 
     # Set seed for reproducibility
     set_seed(args.seed)
@@ -551,4 +557,4 @@ if __name__ == "__main__":
     # ToDo:
     #Logg how many samples are removed
     #Get more information on what features are selected
-    #Combat overfitting XGboost -> eliminate some randomness it seems (
+    #Combat overfitting XGboost
