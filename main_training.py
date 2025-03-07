@@ -439,7 +439,7 @@ def main(args):
     # print(get_feature_importance_model(best_model, feature_names)[:10])
 
     # XAI now only for between person
-    if args.model_type != "rf" and not args.do_within_comparison and not args.use_default_values:
+    if args.model_type not in ["rf", "random_baseline"] and not args.do_within_comparison and not args.use_default_values:
         explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
         _, shap_values = create_shap_beeswarm_plot(explainer, test_data[0], figures_path=figures_path_root, study_name=study_name,
                                   feature_selection=args.use_feature_selection, max_display=11)
