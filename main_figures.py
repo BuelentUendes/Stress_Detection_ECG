@@ -25,7 +25,7 @@ COLORS_DICT = {
     'yellow': '#F0E442',
     'blue': '#0072B2',  # Blue
     'brown': '#D55E00',
-    'magenta': '#CC79A7',
+    'random_baseline': '#CC79A7',
 }
 
 MODELS_ABBREVIATION_DICT = {
@@ -54,7 +54,7 @@ LABEL_ABBREVIATION_DICT = {
 def validate_models(models_str: str) -> list[str]:
     """Validate and convert comma-separated model string to list"""
     models = [model.strip().lower() for model in models_str.split(',')]
-    valid_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'svm']
+    valid_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'svm', 'random_baseline']
 
     for model in models:
         if model not in valid_models:
@@ -179,16 +179,6 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
-    colors = {
-        'rf': '#E69F00', #Orange
-        'xgboost': '#56B4E9',  # Sky blue
-        'lr': '#009E73', #Green
-        'yellow': '#F0E442',
-        'blue': '#0072B2', # Blue
-        'brown': '#D55E00',
-        'magenta': '#CC79A7',
-    }
-
     # Get all sample frequencies and models (sorted)
     sample_freqs = sorted(bootstrapped_results.keys())
     all_models = list(set([model for freq_results in bootstrapped_results.values()
@@ -232,7 +222,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
                                 yerr=[means[valid_idx] - ci_lower[valid_idx],
                                      ci_upper[valid_idx] - means[valid_idx]],
                                 fmt='o', capsize=5, capthick=2, markersize=8,
-                                color=colors[model], label=MODELS_ABBREVIATION_DICT[model],
+                                color=COLORS_DICT[model], label=MODELS_ABBREVIATION_DICT[model],
                                 elinewidth=2)
 
             # Add mean values very close to the points
@@ -371,19 +361,19 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="rest",
+    parser.add_argument("--negative_class", help="Which category should be 0", default="baseline",
                         type=validate_category)
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=256, type=int)
+                        default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=60, help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
     parser.add_argument(
         "--models",
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
-             "'knn', 'lr', 'xgboost', 'qda', 'svm'",
+             "'knn', 'lr', 'xgboost', 'qda', 'svm', 'random_baseline'",
         type=validate_models,
-        default="lr, xgboost, rf"
+        default="lr, xgboost, rf, random_baseline"
     )
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
