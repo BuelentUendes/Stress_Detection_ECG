@@ -359,7 +359,6 @@ def main(args):
         # Get the regular datasplit for the normal between people split
         train_data, val_data, test_data = ecg_dataset.get_data()
 
-    args.use_feature_subset = True
     if args.use_feature_subset:
         train_data = get_subset_feature_df(train_data, feature_subset=args.feature_subset)
         val_data = get_subset_feature_df(val_data, feature_subset=args.feature_subset)
