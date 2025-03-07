@@ -27,7 +27,7 @@ def validate_target_metric(value: str) -> str:
 
 
 def validate_ml_model(value: str) -> str:
-    valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'random_baseline', 'svm']
+    valid_ml_models = ['dt', 'rf', 'adaboost', 'lda', 'knn', 'lr', 'xgboost', 'qda', 'random_baseline', 'svm', 'gmm']
     if value.lower() not in valid_ml_models:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {valid_ml_models}.")
