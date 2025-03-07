@@ -257,7 +257,9 @@ class ECGDataset:
                 "hr_reactivity"]
             if not hr_reactivity_data.empty:
                 sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
-                            label=experiment_condition.replace("_"," "), fill=True, alpha=0.25)
+                            label=f"{experiment_condition.replace('_',' ')}, "
+                                  f"t-test: {np.round(t_test_results[experiment_condition]['t-statistic'], 4)}",
+                            fill=True, alpha=0.25)
         # Customize the plot
         plt.xlabel('Heart Rate Reactivity')
         plt.ylabel('Density')
@@ -637,8 +639,8 @@ def prepare_data(train_data: pd.DataFrame,
         if use_quantile_transformer:
             print("We use the quantile transformer")
             quantile_transformer_obj = QuantileTransformer(n_quantiles=1000, output_distribution="normal")
+            x_train = quantile_transformer_obj.fit_transform(x_train)
         scaler_obj = StandardScaler() if scaler.lower() == "standard_scaler" else MinMaxScaler()
-        x_train = quantile_transformer_obj.fit_transform(x_train)
         x_train = scaler_obj.fit_transform(x_train)
         if val_data is not None:
             if use_quantile_transformer:
