@@ -13,6 +13,7 @@ from sklearn.base import clone
 from optuna.trial import Trial
 import json
 import shap
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
@@ -20,7 +21,7 @@ from utils.helper_functions import set_seed, ECGDataset, prepare_data, get_ml_mo
     get_data_balance, evaluate_classifier, create_directory, FeatureSelectionPipeline, \
     bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
-    validate_resampling_method
+    validate_resampling_method, validate_feature_subset
 from utils.helper_xai import create_shap_dependence_plots, create_shap_beeswarm_plot, create_shap_decision_plot
 
 
@@ -166,8 +167,11 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
     except FileNotFoundError:
         return None
 
-def get_save_name(study_name: str, add_within_comparison: bool,
-                  use_default_values: bool, use_feature_selection: bool,
+def get_save_name(study_name: str,
+                  add_within_comparison: bool,
+                  use_default_values: bool,
+                  use_feature_selection: bool,
+                  use_feature_subset: bool,
                   bootstrap: bool,
                   subcategories: bool) -> str:
     """Generate the save filename based on the configuration.
@@ -187,6 +191,8 @@ def get_save_name(study_name: str, add_within_comparison: bool,
     prefix = "WITHIN_" if add_within_comparison else ""
     middle = "DEFAULT_" if use_default_values else ""
     suffix = "_feature_selection" if use_feature_selection else ""
+    suffix_2 = "_subset_features" if use_feature_subset else ""
+
     if bootstrap:
         end = "_bootstrapped_subcategories" if subcategories else "_bootstrapped"
     else:
@@ -270,6 +276,13 @@ def optimize_hyperparameters(
     return load_best_params(results_path_history, f"{study_name}_optimization_history.json")
 
 
+def get_subset_feature_df(df: pd.DataFrame, feature_subset: list[str]) -> pd.DataFrame:
+    # We need to have anyways the label and category in there
+    feature_list = ["category", "label"]
+    feature_list.extend(feature for feature in feature_subset)
+    return df[feature_list]
+
+
 def main(args):
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size),
                                     str(args.window_shift))
@@ -346,6 +359,12 @@ def main(args):
         # Get the regular datasplit for the normal between people split
         train_data, val_data, test_data = ecg_dataset.get_data()
 
+    args.use_feature_subset = True
+    if args.use_feature_subset:
+        train_data = get_subset_feature_df(train_data, feature_subset=args.feature_subset)
+        val_data = get_subset_feature_df(val_data, feature_subset=args.feature_subset)
+        test_data = get_subset_feature_df(test_data, feature_subset=args.feature_subset)
+
     train_data, val_data, test_data, feature_names = prepare_data(
         train_data,
         val_data,
@@ -384,9 +403,11 @@ def main(args):
         best_model, train_data, val_data, test_data,
         save_path=results_path_best_performance,
         save_name=get_save_name(
-            study_name, add_within_comparison=args.do_within_comparison,
+            study_name,
+            add_within_comparison=args.do_within_comparison,
             use_default_values=args.use_default_values, 
             use_feature_selection=args.use_feature_selection,
+            use_feature_subset=args.use_feature_subset,
             bootstrap=False,
             subcategories=False,
         ),
@@ -405,9 +426,11 @@ def main(args):
             print(final_bootstrapped_results)
 
         save_name_overall=get_save_name(
-            study_name, add_within_comparison=args.do_within_comparison,
+            study_name,
+            add_within_comparison=args.do_within_comparison,
             use_default_values=args.use_default_values,
             use_feature_selection=args.use_feature_selection,
+            use_feature_subset=args.use_feature_subset,
             bootstrap=True,
             subcategories=False
         )
@@ -417,9 +440,11 @@ def main(args):
 
         if args.bootstrap_subcategories:
             save_name_subcategories = get_save_name(
-                study_name, add_within_comparison=args.do_within_comparison,
+                study_name,
+                add_within_comparison=args.do_within_comparison,
                 use_default_values=args.use_default_values,
                 use_feature_selection=args.use_feature_selection,
+                use_feature_subset=args.use_feature_subset,
                 bootstrap=True,
                 subcategories=True
             )
@@ -439,37 +464,38 @@ def main(args):
     # print(get_feature_importance_model(best_model, feature_names)[:10])
 
     # XAI now only for between person
-    if args.model_type not in ["rf", "random_baseline"] and not args.do_within_comparison and not args.use_default_values:
-        explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
-        _, shap_values = create_shap_beeswarm_plot(explainer, test_data[0], figures_path=figures_path_root, study_name=study_name,
-                                  feature_selection=args.use_feature_selection, max_display=11)
-        create_shap_dependence_plots(shap_values, feature_names, figures_path=figures_path_root,
-                                     study_name=study_name, feature_selection=args.use_feature_selection,
-                                     n_top_features=5)
+    if args.get_model_explanations:
+        if args.model_type not in ["rf", "random_baseline"] and not args.do_within_comparison and not args.use_default_values:
+            explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
+            _, shap_values = create_shap_beeswarm_plot(explainer, test_data[0], figures_path=figures_path_root, study_name=study_name,
+                                      feature_selection=args.use_feature_selection, max_display=11)
+            create_shap_dependence_plots(shap_values, feature_names, figures_path=figures_path_root,
+                                         study_name=study_name, feature_selection=args.use_feature_selection,
+                                         n_top_features=5)
 
-        create_shap_decision_plot(
-            best_model,
-            explainer,
-            test_data,
-            feature_names,
-            prediction_filter='correct',
-            confidence_threshold=0.9,
-            figures_path=figures_path_root,
-            study_name=study_name,
-            feature_selection=args.use_feature_selection
-        )
+            create_shap_decision_plot(
+                best_model,
+                explainer,
+                test_data,
+                feature_names,
+                prediction_filter='correct',
+                confidence_threshold=0.9,
+                figures_path=figures_path_root,
+                study_name=study_name,
+                feature_selection=args.use_feature_selection
+            )
 
-        create_shap_decision_plot(
-            best_model,
-            explainer,
-            test_data,
-            feature_names,
-            prediction_filter='incorrect',
-            confidence_threshold=0.9,
-            figures_path=figures_path_root,
-            study_name=study_name,
-            feature_selection=args.use_feature_selection
-        )
+            create_shap_decision_plot(
+                best_model,
+                explainer,
+                test_data,
+                feature_names,
+                prediction_filter='incorrect',
+                confidence_threshold=0.9,
+                figures_path=figures_path_root,
+                study_name=study_name,
+                feature_selection=args.use_feature_selection
+            )
 
 
 if __name__ == "__main__":
@@ -523,6 +549,13 @@ if __name__ == "__main__":
                        help="Minimum number of features to select")
     parser.add_argument("--max_features", type=int, default=20,
                        help="Maximum number of features to select")
+    parser.add_argument("--use_feature_subset",
+                        help="instead of using full set of features, use only a subset of features defined in args.subset",
+                        action="store_true")
+    parser.add_argument("--feature_subset",
+                        help="What feature subset to use. Only used when 'use_feature_subset' is set to true",
+                        type=validate_feature_subset,
+                        default="hr_mean")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.",
                         type=int, default=5)
 
@@ -536,6 +569,8 @@ if __name__ == "__main__":
     parser.add_argument("--bin_strategy", help="what binning strategy to use",
                         default="uniform", choices=("uniform", "quantile")
                         )
+    parser.add_argument("--get_model_explanations", action="store_true",
+                        help="If set, we get model explanations using SHAP")
     args = parser.parse_args()
 
     args.verbose = True
@@ -547,15 +582,13 @@ if __name__ == "__main__":
 
     main(args)
 
-    #ToDo:
-    # Add similarity DTW time-series, check how fast this is
-
     # Useful discussion for the choice of evaluation metrics:
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
 
 
     #ToDo:
     # Be able to run model on specific subset of features
+    # Add similarity DTW time-series, check how fast this is
     # Classify performance MS - LPA and MS -MPA (very similar though) solely on mean heart rate and compare with dummy classifier
     # Logging how many samples are removed
     # Check distribution of the underlying features
