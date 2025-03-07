@@ -15,11 +15,12 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
+import seaborn as sns
 
 from numpy.testing import assert_almost_equal
 import pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, QuantileTransformer
 from sklearn import metrics
 from sklearn.svm import SVC
 from sklearn.base import BaseEstimator, clone
@@ -114,7 +115,7 @@ class ECGDataset:
         """
         self.data_folders = [filename for filename in os.listdir(self.root_dir) if filename.lower().endswith((".csv"))]
 
-    def _load_data(self, data_files: list[str]) -> pd.DataFrame:
+    def _load_data(self, data_files: list[str], add_participant_id: Optional[bool]=False) -> pd.DataFrame:
         """
         Loads the data into a pandas dataframe from the CSV files.
         :param data_files: list of data files to load from
@@ -123,12 +124,12 @@ class ECGDataset:
         dataframes = []  # List to hold individual DataFrames
 
         for csv_file in data_files:
-            if self.add_participant_id:
+            if self.add_participant_id or add_participant_id:
                 participant_idx = int(csv_file.split(".")[0])
             file_path = os.path.join(self.root_dir, csv_file)  # Construct full file path
             try:
                 df = pd.read_csv(file_path)  # Read CSV file into DataFrame
-                if self.add_participant_id:
+                if self.add_participant_id or add_participant_id:
                     df["participant_id"] = participant_idx
                 dataframes.append(df)  # Append DataFrame to the list
             except Exception as e:
@@ -183,21 +184,93 @@ class ECGDataset:
 
         return training_data, testing_data
 
+
+    def get_average_hr_reactivity(self, positive_class, negative_class, save_path, show_plot=True):
+        # We calculate the average HR reactivity based on participant id
+        total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
+        negative_class_baseline = total_data_participant[total_data_participant["category"] == negative_class][["hr_mean", "participant_id"]]
+        negative_class_baseline_hr = negative_class_baseline.groupby(['participant_id']).mean().reset_index()
+
+        positive_class_baseline = total_data_participant[total_data_participant["category"] == positive_class][["hr_mean", "participant_id", "label"]]
+        positive_class_baseline_hr_label = positive_class_baseline.groupby(["participant_id", "label"]).mean().reset_index()
+
+        # merge now
+        positive_class_baseline_hr_label = pd.merge(
+            positive_class_baseline_hr_label,
+            negative_class_baseline_hr,
+            on="participant_id",
+            how="left"
+        )
+
+        print(f"number ids {len(positive_class_baseline_hr_label['participant_id'].unique())}")
+
+        # Rename the column names (hr_mean_x is now HR_mean_experimental)
+        positive_class_baseline_hr_label = positive_class_baseline_hr_label.rename(columns={"hr_mean_x": "hr_mean_experiment_condition",
+                                                 "hr_mean_y": "hr_mean_baseline_condition"})
+
+        positive_class_baseline_hr_label["hr_reactivity"] = positive_class_baseline_hr_label["hr_mean_experiment_condition"] - positive_class_baseline_hr_label["hr_mean_baseline_condition"]
+        all_participants = set(positive_class_baseline_hr_label["participant_id"].unique())
+        participants_per_label = positive_class_baseline_hr_label.groupby("label")["participant_id"].unique()
+
+        # logging what participants are missing
+        for label in participants_per_label.index:
+            missing = all_participants - set(participants_per_label[label])
+            if missing:
+                print(f"Missing in {label}: {missing}")
+
+        # Mean HR reactivity by label
+        hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hr_reactivity"]].groupby(["label"]).describe()
+        print(hr_reactivity_statistics)
+
+        unique_experiment_conditions = set(positive_class_baseline_hr_label["label"].unique())
+
+        colors_index = {
+            'Pasat': '#E69F00',
+            'Pasat_repeat': '#56B4E9',
+            'Raven': '#009E73',
+            'SSST_Sing_countdown': '#0072B2',
+            'TA': '#D55E00',
+            'TA_repeat': '#CC79A7'
+        }
+
+        plt.figure(figsize=(10, 6))
+
+        for experiment_condition in unique_experiment_conditions:
+            hr_reactivity_data = \
+            positive_class_baseline_hr_label[positive_class_baseline_hr_label['label'] == experiment_condition][
+                "hr_reactivity"]
+            if not hr_reactivity_data.empty:
+                sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
+                            label=experiment_condition, fill=True, alpha=0.25)
+        # Customize the plot
+        plt.xlabel('Heart Rate Reactivity')
+        plt.ylabel('Density')
+        plt.legend()
+        save_path = os.path.join(save_path, f"histogram_heart_rate_reactivity_label.png")
+        plt.savefig(save_path, dpi=500, bbox_inches='tight')
+        if show_plot:
+            plt.show()
+        plt.close()
+
     def plot_histogram(self,
                        column: str,
                        x_label: Optional[str] = None,
                        use_density: Optional[bool] = True,
                        save_path: Optional[str] = None,
-                       save_name: Optional[str] = None) -> None:
+                       save_name: Optional[str] = None,
+                       plot_subcategory: Optional[bool] = False,
+                       category_to_plot: Optional[str] = "mental_stress") -> None:
         """
         Plots a histogram of the specified column, separated by category.
         
         Args:
             column: Name of the column to plot (e.g., 'hr_mean')
             x_label: str: label for the x-axis of the histogram
-            use_density: bool: if set, we normalize the data and and the pdf is then shown
+            use_density: bool: if set, we normalize the data and the pdf is then shown
             save_path: Optional path to save the plot. If None, plot is displayed.
             save_name: Optional: name of the resulting plot
+            plot_subcategory: Optional: If set, we plot the subcategory labels
+            category_to_plot: Optional: Which category to focus on when plotting labels
         """
         plt.figure(figsize=(10, 6))
         
@@ -212,6 +285,37 @@ class ECGDataset:
             'mental_stress': '#D55E00',
             'high_physical_activity': '#CC79A7'
         }
+
+        if plot_subcategory:
+            label_data = self.total_data[self.total_data["category"]==category_to_plot][[column, "label"]]
+            unique_labels = list(label_data["label"].unique())
+
+            for sub_label in unique_labels:
+                unique_label_data = label_data[label_data["label"]==sub_label][column]
+                print(f"{sub_label} mean is {unique_label_data.mean()}")
+                if not unique_label_data.empty:
+                    plt.hist(unique_label_data,
+                             bins=100,
+                             alpha=0.25,
+                             label=sub_label,
+                             density=use_density)
+
+            # Customize the plot
+            plt.xlabel(f"{column}")
+            plt.ylabel('Probability Density') if use_density else plt.ylabel('Count')
+            plt.legend()
+
+            # Save or show the plot
+            if save_path:
+                if save_name is not None:
+                    save_path = os.path.join(save_path, f"{save_name}_label.png")
+                else:
+                    save_path = os.path.join(save_path, f"histogram_{column}_label.png")
+
+                plt.savefig(save_path, dpi=500, bbox_inches='tight')
+                plt.close()
+            else:
+                plt.show()
 
         # Plot histograms for each category
         for category, color in colors.items():
@@ -317,6 +421,8 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     else:
+        # By rest we mean everything without high physical_activity
+        data = data[(data["category"] != "high_physical_activity")]
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     # Split data into x_data and y_data
@@ -411,6 +517,7 @@ def prepare_data(train_data: pd.DataFrame,
                  negative_class: Optional[str] = "baseline",
                  resampling_method: Optional[str] = None,
                  scaler: Optional[str] = None,
+                 use_quantile_transformer: Optional[bool] = False,
                  use_subset: Optional[list[bool]] = None) -> tuple:
     """
     Prepares the data for scikit-learn models. Can handle both 2-way (train/val) and 3-way (train/val/test) splits.
@@ -422,6 +529,7 @@ def prepare_data(train_data: pd.DataFrame,
         positive_class: str, which category to be encoded as 1
         negative_class: str, which category to be encoded as 0
         scaler: StandardScaler instance for normalization
+        use_quantile_transformer: If set, we transform the features to normal distribution first
         resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
         use_subset: bool, list of bool to indicate which features should be included or not
     
@@ -511,11 +619,21 @@ def prepare_data(train_data: pd.DataFrame,
     if scaler is not None:
         assert scaler.lower() in ["min_max", "standard_scaler"], \
             "please set a valid scaler. Options: 'min_max', 'standard_scaler'"
+
+        # Let's do quantile transformation first before applying scaler
+        if use_quantile_transformer:
+            print("We use the quantile transformer")
+            quantile_transformer_obj = QuantileTransformer(n_quantiles=1000, output_distribution="normal")
         scaler_obj = StandardScaler() if scaler.lower() == "standard_scaler" else MinMaxScaler()
+        x_train = quantile_transformer_obj.fit_transform(x_train)
         x_train = scaler_obj.fit_transform(x_train)
         if val_data is not None:
+            if use_quantile_transformer:
+                x_val = quantile_transformer_obj.transform(x_val)
             x_val = scaler_obj.transform(x_val)
         if test_data is not None:
+            if use_quantile_transformer:
+                x_test = quantile_transformer_obj.transform(x_test)
             x_test = scaler_obj.transform(x_test)
 
     # Return appropriate tuple based on whether test_data was provided
