@@ -241,7 +241,7 @@ class ECGDataset:
                 "hr_reactivity"]
             if not hr_reactivity_data.empty:
                 sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
-                            label=experiment_condition, fill=True, alpha=0.25)
+                            label=experiment_condition.replace("_"," "), fill=True, alpha=0.25)
         # Customize the plot
         plt.xlabel('Heart Rate Reactivity')
         plt.ylabel('Density')
@@ -258,6 +258,7 @@ class ECGDataset:
                        use_density: Optional[bool] = True,
                        save_path: Optional[str] = None,
                        save_name: Optional[str] = None,
+                       show_plot=True,
                        plot_subcategory: Optional[bool] = False,
                        category_to_plot: Optional[str] = "mental_stress") -> None:
         """
@@ -321,18 +322,13 @@ class ECGDataset:
         for category, color in colors.items():
             category_data = self.total_data[self.total_data['category'] == category][column]
             if not category_data.empty:
-                plt.hist(category_data, 
-                        bins=100,
-                        alpha=0.6,
-                        color=color,
-                        label=category.replace('_', ' ').title(),
-                        density=use_density)
+                sns.kdeplot(category_data, color=color, label=category.replace('_', ' ').title(), fill=True, alpha=0.6)
 
         # Customize the plot
-        plt.xlabel(f'{column.replace("_", " ")}' if x_label is None else x_label)
-        plt.ylabel('Probability Density') if use_density else plt.ylabel('Count')
+        plt.xlabel(column.replace('_', ' ').title())
+        plt.ylabel('Density' if use_density else 'Frequency')
         plt.legend()
-        
+
         # Save or show the plot
         if save_path:
             if save_name is not None:
@@ -341,9 +337,10 @@ class ECGDataset:
                 save_path = os.path.join(save_path, f"histogram_{column}.png")
 
             plt.savefig(save_path, dpi=500, bbox_inches='tight')
-            plt.close()
-        else:
+        if show_plot:
             plt.show()
+
+        plt.close()
 
     def _split_data(self) -> tuple:
         """
