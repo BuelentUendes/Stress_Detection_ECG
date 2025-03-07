@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import seaborn as sns
+from scipy.stats import ttest_1samp
 
 from numpy.testing import assert_almost_equal
 import pandas as pd
@@ -218,7 +219,22 @@ class ECGDataset:
             if missing:
                 print(f"Missing in {label}: {missing}")
 
-        # Mean HR reactivity by label
+        # Perform t-tests for each label
+        t_test_results = {}
+
+        for label in positive_class_baseline_hr_label["label"].unique():
+            hr_reactivity_data = positive_class_baseline_hr_label.loc[
+                positive_class_baseline_hr_label["label"] == label, "hr_reactivity"
+            ]
+
+            if not hr_reactivity_data.empty:
+                t_stat, p_value = ttest_1samp(hr_reactivity_data, popmean=0, nan_policy='omit')
+                t_test_results[label] = {"t-statistic": t_stat, "p-value": p_value}
+
+        # Print results
+        for label, result in t_test_results.items():
+            print(f"Label: {label}, t-statistic: {result['t-statistic']:.3f}, p-value: {result['p-value']:.3e}")
+
         hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hr_reactivity"]].groupby(["label"]).describe()
         print(hr_reactivity_statistics)
 
