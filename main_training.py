@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore")
 import optuna
 import numpy as np
 from sklearn import metrics
+from sklearn.mixture import GaussianMixture
 from sklearn.base import clone
 from optuna.trial import Trial
 import json
@@ -199,7 +200,7 @@ def get_save_name(study_name: str,
         end = ""
 
     return f"{prefix}{middle}{study_name}_best_performance_results{suffix}{end}.json" if not bootstrap else \
-        f"{prefix}{middle}{study_name}{suffix}{end}.json"
+        f"{prefix}{middle}{study_name}{suffix}{suffix_2}{end}.json"
 
 def optimize_hyperparameters(
     model_type: str,
