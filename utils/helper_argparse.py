@@ -6,6 +6,10 @@ def validate_scaler(value: str) -> str:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. Choose from 'standard_scaler' or 'min_max'.")
     return value.lower()
 
+def validate_feature_subset(value: str) -> str:
+    feature_subset = value.replace(" ", "").split(",")
+    return feature_subset
+
 
 def validate_category(value: str) -> str:
     valid_categories = ['high_physical_activity', 'mental_stress', 'baseline',
