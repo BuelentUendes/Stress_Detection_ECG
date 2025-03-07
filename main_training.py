@@ -37,6 +37,7 @@ MODELS_ABBREVIATION_DICT = {
     "qda": "Quadratic discriminant analysis",
     "svm": "Support vector machines",
     "random_baseline": "Random baseline",
+    "gmm": "Gaussian Mixture",
 }
 
 LABEL_ABBREVIATION_DICT = {
@@ -521,7 +522,7 @@ if __name__ == "__main__":
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
-                                             "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline",
+                                             "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
                         type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
