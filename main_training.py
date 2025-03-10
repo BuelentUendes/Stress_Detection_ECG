@@ -459,10 +459,13 @@ def main(args):
         y_pred = best_model.predict_proba(test_data[0])[:, 1]
         plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy, figures_path_root)
 
-    # Get the feature importance:
-
     # Feature coefficients for LR model
-    # print(get_feature_importance_model(best_model, feature_names)[:10])
+    if args.model_type == "lr":
+        lr_coefficients = get_feature_importance_model(best_model, feature_names)
+        prefix = f"{args.resampling_method}_feature_coefficients"
+        save_name_feature_coefficients = f"{prefix}_feature_selection.json" if args.use_feature_selection else f"{prefix}.json"
+        with open(os.path.join(results_path_best_performance, save_name_feature_coefficients), "w") as f:
+            json.dump(lr_coefficients, f, indent=4)
 
     # XAI now only for between person
     if args.get_model_explanations:
@@ -586,16 +589,16 @@ if __name__ == "__main__":
     # Useful discussion for the choice of evaluation metrics:
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
 
-
     #ToDo:
-    # Be able to run model on specific subset of features
     # Add similarity DTW time-series, check how fast this is
     # Classify performance MS - LPA and MS -MPA (very similar though) solely on mean heart rate and compare with dummy classifier
     # Logging how many samples are removed
-    # Check distribution of the underlying features
+    # Check distribution of the underlying features!
     # Alternative feature selection process -> mutual information, backward selection
     # Combat overfitting of XGboost
     # Check the preprocessing/feature engineering pipeline once more! -> must be somehow ways to improve the performance
+    # Log it correctly & assess the quality of the signal!
+    # window shift of 30s
 
     #Combat overfitting XGboost
 
