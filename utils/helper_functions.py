@@ -257,10 +257,21 @@ class ECGDataset:
             positive_class_baseline_hr_label[positive_class_baseline_hr_label['label'] == experiment_condition][
                 "hr_reactivity"]
             if not hr_reactivity_data.empty:
+                p_value = t_test_results[experiment_condition]['p-value']
+                t_statistic = np.round(t_test_results[experiment_condition]['t-statistic'], 4)
+
+                label = (f"{experiment_condition.replace('_', ' ')}, t-test: p < 0.05"
+                         if p_value < 0.05 else f"{experiment_condition.replace('_', ' ')}")
+
                 sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
-                            label=f"{experiment_condition.replace('_',' ')}, "
-                                  f"t-test: {np.round(t_test_results[experiment_condition]['t-statistic'], 4)}",
-                            fill=True, alpha=0.25)
+                            label=label, fill=True, alpha=0.25)
+
+                # sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
+                #             label=f"{experiment_condition.replace('_',' ')}, "
+                #                   f"t-test: p < 0.05  {
+                #                   np.round(t_test_results[experiment_condition]['t-statistic'], 4)
+                #                   }",
+                #             fill=True, alpha=0.25)
         # Customize the plot
         plt.xlabel('Heart Rate Reactivity')
         plt.ylabel('Density')
@@ -703,7 +714,7 @@ def get_ml_model(model: str, params: dict = None):
         "qda": {},
         "svm": {"kernel": "rbf", "C": 1.0, "gamma": 0.7},
         "random_baseline": {"strategy": "prior"},
-        "gmm": {"n_components": 2},
+        "gmm": {"n_components": 2, 'covariance_type': 'diag', "n_init": 50, "random_state": 42},
     }
 
     # Map model names to their corresponding classes
@@ -1427,3 +1438,68 @@ def get_feature_importance_model(model, feature_names, normalize_values=False):
 
     else:
         return None
+
+
+def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), save_path=None):
+    """
+    Plots the most important features based on absolute coefficient values.
+
+    Args:
+        feature_coeffs (list of tuples): List where each tuple contains (feature_name, coefficient).
+        num_features (int): Number of top features to display (default: 20).
+        figsize (tuple): Figure size.
+        save_path (str, optional): Path to save the figure.
+    """
+    feature_coeffs = np.array(feature_coeffs, dtype=object)
+
+    feature_names = feature_coeffs[:, 0]
+    coefficients = feature_coeffs[:, 1].astype(float)
+
+    sorted_indices = np.argsort(np.abs(coefficients))[::-1]
+    feature_names = feature_names[sorted_indices][:num_features]
+    coefficients = coefficients[sorted_indices][:num_features]
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Old color scheme
+    # colors = ['#B2182B' if coef < 0 else '#2166AC' for coef in coefficients]
+    colors = ['#D73027' if coef < 0 else '#56B4E9' for coef in coefficients]
+
+    y_positions = np.arange(len(feature_names))
+
+    ax.barh(y_positions, coefficients, color=colors, alpha=0.85, edgecolor='black', linewidth=1.2)
+
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(feature_names, fontsize=14)
+    ax.set_xlabel("Feature Coefficient", fontsize=16, fontweight='bold')
+    ax.set_ylabel("Feature Name", fontsize=16, fontweight='bold')
+    ax.set_title(f"Top {num_features} Most Important Features", fontsize=18, fontweight='bold', pad=15)
+
+    ax.axvline(0, color='black', linestyle="--", linewidth=1.5)
+
+    max_coef = max(abs(coefficients))
+    plt.xlim(-1.5 * max_coef, 1.5 * max_coef)  # Expanding limits by 20% ensures no overlap
+
+    for y, coef in zip(y_positions, coefficients):
+        offset = 0.02 * max(abs(coefficients))
+        ha = 'left' if coef > 0 else 'right'
+        ax.text(coef + (offset * np.sign(coef)), y, f'{coef:.3f}', ha=ha, va='center', fontsize=13, fontweight='bold')
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('black')
+    ax.spines['bottom'].set_color('black')
+    ax.xaxis.set_tick_params(width=1.2, length=6)
+    ax.yaxis.set_tick_params(width=1.2, length=6)
+    ax.grid(axis='x', linestyle='--', alpha=0.6)
+
+    # Invert y-axis to put the most important feature on the top
+    ax.invert_yaxis()
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=600, bbox_inches="tight", transparent=True)
+
+    plt.show()
+    plt.close()
