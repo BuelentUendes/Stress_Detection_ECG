@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
 from utils.helper_functions import set_seed, ECGDataset, prepare_data, get_ml_model, \
     get_data_balance, evaluate_classifier, create_directory, FeatureSelectionPipeline, \
-    bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model
+    bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model, plot_feature_importance
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method, validate_feature_subset
 from utils.helper_xai import create_shap_dependence_plots, create_shap_beeswarm_plot, create_shap_decision_plot
@@ -168,6 +168,31 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
             return json.load(file)["best_params"]
     except FileNotFoundError:
         return None
+
+
+def load_top_features(file_path: str, file_name:str, threshold: float, random: bool=False,
+                      random_k: int = 20) -> list[str]:
+    try:
+        with open(os.path.join(file_path, file_name)) as file:
+            print(f"We found optimized parameter configurations and load it")
+            feature_selection_results = json.load(file)
+
+            # Now pick either features that are selected up to threshold or random
+            if not random:
+                selected_features_pairs = [feature for feature in feature_selection_results if feature[1] >= threshold]
+                # We need a list of features only
+                feature_names = [feature[0] for feature in selected_features_pairs if feature[1] >= threshold]
+            else:
+                feature_names_list = [feature[0] for feature in feature_selection_results]
+                # Ensure that we do not choose more features that we actually have
+                number_of_random_samples = min(len(feature_names_list), random_k)
+                feature_names = np.random.choice(feature_names_list, size=number_of_random_samples, replace=False)
+
+            return feature_names
+
+    except FileNotFoundError:
+        return None
+
 
 def get_save_name(study_name: str,
                   add_within_comparison: bool,
@@ -362,6 +387,11 @@ def main(args):
         train_data, val_data, test_data = ecg_dataset.get_data()
 
     if args.use_feature_subset:
+
+        # We need to use here a function if args.use_top_features
+        if args.use_top_features:
+            raise NotImplementedError
+
         train_data = get_subset_feature_df(train_data, feature_subset=args.feature_subset)
         val_data = get_subset_feature_df(val_data, feature_subset=args.feature_subset)
         test_data = get_subset_feature_df(test_data, feature_subset=args.feature_subset)
@@ -467,6 +497,10 @@ def main(args):
         with open(os.path.join(results_path_best_performance, save_name_feature_coefficients), "w") as f:
             json.dump(lr_coefficients, f, indent=4)
 
+        save_name = os.path.join(figures_path_root, f"{save_name_feature_coefficients}.png")
+        plot_feature_importance(lr_coefficients, num_features=10, figsize=(10, 7), save_path=save_name)
+
+
     # XAI now only for between person
     if args.get_model_explanations:
         if args.model_type not in ["rf", "random_baseline"] and not args.do_within_comparison and not args.use_default_values:
@@ -560,6 +594,9 @@ if __name__ == "__main__":
                         help="What feature subset to use. Only used when 'use_feature_subset' is set to true",
                         type=validate_feature_subset,
                         default="hr_mean")
+    parser.add_argument("--use_top_features",
+                        help="If set, we use the top features that were selected 100% of the time during feature selection",
+                        action="store_true")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.",
                         type=int, default=5)
 
@@ -580,6 +617,7 @@ if __name__ == "__main__":
     args.verbose = True
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
+    args.add_calibration_plots = True
 
     # Set seed for reproducibility
     set_seed(args.seed)
