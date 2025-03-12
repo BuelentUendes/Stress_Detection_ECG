@@ -390,7 +390,14 @@ def main(args):
 
         # We need to use here a function if args.use_top_features
         if args.use_top_features:
-            raise NotImplementedError
+            args.feature_subset = load_top_features(
+                file_path=results_path_feature_selection,
+                file_name="feature_importance_total_selected.json",
+                threshold=100, # Only take the ones that are always selected
+                random=False,
+                random_k=20
+            )
+
 
         train_data = get_subset_feature_df(train_data, feature_subset=args.feature_subset)
         val_data = get_subset_feature_df(val_data, feature_subset=args.feature_subset)
@@ -618,6 +625,8 @@ if __name__ == "__main__":
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
     args.add_calibration_plots = True
+    args.use_feature_subset = True
+    args.use_top_features = True
 
     # Set seed for reproducibility
     set_seed(args.seed)
