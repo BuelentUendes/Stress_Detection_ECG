@@ -183,6 +183,7 @@ def load_top_features(file_path: str, file_name:str, threshold: float, random: b
                 # We need a list of features only
                 feature_names = [feature[0] for feature in selected_features_pairs if feature[1] >= threshold]
             else:
+                print(f"we use a random subset of {random_k} features")
                 feature_names_list = [feature[0] for feature in feature_selection_results]
                 # Ensure that we do not choose more features that we actually have
                 number_of_random_samples = min(len(feature_names_list), random_k)
@@ -200,7 +201,9 @@ def get_save_name(study_name: str,
                   use_feature_selection: bool,
                   use_feature_subset: bool,
                   bootstrap: bool,
-                  subcategories: bool) -> str:
+                  subcategories: bool,
+                  random_subset: bool = False,
+                  ) -> str:
     """Generate the save filename based on the configuration.
     
     Args:
@@ -209,7 +212,8 @@ def get_save_name(study_name: str,
         use_default_values: Boolean. If set, we do not do hyperparameter tuning and use the default values
         use_feature_selection: Boolean. If set, we use feature selection
         bootstrap. Boolean. If set, we use bootstrap
-        subcategories. Boolean. If wet, we bootstrapped subcategories
+        subcategories. Boolean. If set, we bootstrapped subcategories
+        random_subset. Boolean. If set, we used a random subset of features
     
     Returns:
         str: Filename for saving results
@@ -218,7 +222,12 @@ def get_save_name(study_name: str,
     prefix = "WITHIN_" if add_within_comparison else ""
     middle = "DEFAULT_" if use_default_values else ""
     suffix = "_feature_selection" if use_feature_selection else ""
-    suffix_2 = "_subset_features" if use_feature_subset else ""
+    if use_feature_subset and not random_subset:
+        suffix_2 = "_subset_features" if use_feature_subset else ""
+    elif use_feature_subset and random_subset:
+        suffix_2 = "_subset_features_random"
+    else:
+        suffix_2 = ""
 
     if bootstrap:
         end = "_bootstrapped_subcategories" if subcategories else "_bootstrapped"
@@ -387,17 +396,15 @@ def main(args):
         train_data, val_data, test_data = ecg_dataset.get_data()
 
     if args.use_feature_subset:
-
         # We need to use here a function if args.use_top_features
         if args.use_top_features:
             args.feature_subset = load_top_features(
                 file_path=results_path_feature_selection,
                 file_name="feature_importance_total_selected.json",
                 threshold=100, # Only take the ones that are always selected
-                random=False,
-                random_k=20
+                random=args.use_random_subset_features,
+                random_k=10
             )
-
 
         train_data = get_subset_feature_df(train_data, feature_subset=args.feature_subset)
         val_data = get_subset_feature_df(val_data, feature_subset=args.feature_subset)
@@ -448,6 +455,7 @@ def main(args):
             use_feature_subset=args.use_feature_subset,
             bootstrap=False,
             subcategories=False,
+            random_subset=args.use_random_subset_features,
         ),
         verbose=args.verbose)
 
@@ -470,7 +478,8 @@ def main(args):
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
             bootstrap=True,
-            subcategories=False
+            subcategories=False,
+            random_subset=args.use_random_subset_features,
         )
 
         with open(os.path.join(results_path_bootstrap_performance, save_name_overall), "w") as f:
@@ -484,7 +493,8 @@ def main(args):
                 use_feature_selection=args.use_feature_selection,
                 use_feature_subset=args.use_feature_subset,
                 bootstrap=True,
-                subcategories=True
+                subcategories=True,
+                random_subset=args.use_random_subset_features,
             )
 
             with open(os.path.join(results_path_bootstrap_performance, save_name_subcategories), "w") as f:
@@ -603,6 +613,9 @@ if __name__ == "__main__":
                         default="hr_mean")
     parser.add_argument("--use_top_features",
                         help="If set, we use the top features that were selected 100% of the time during feature selection",
+                        action="store_true")
+    parser.add_argument("--use_random_subset_features",
+                        help="If set, we use a random subset of features.",
                         action="store_true")
     parser.add_argument("--n_splits", help="Number of splits used for feature selection.",
                         type=int, default=5)
