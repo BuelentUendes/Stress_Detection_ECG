@@ -187,13 +187,15 @@ class ECGDataset:
         return training_data, testing_data
 
 
-    def get_average_hr_reactivity(self, positive_class, negative_class, save_path, show_plot=True):
+    def get_average_hr_reactivity(self, positive_class, negative_class, save_path,
+                                  show_plot=True,
+                                  heart_measure="hrv_mean"):
         # We calculate the average HR reactivity based on participant id
         total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
-        negative_class_baseline = total_data_participant[total_data_participant["category"] == negative_class][["hr_mean", "participant_id"]]
+        negative_class_baseline = total_data_participant[total_data_participant["category"] == negative_class][[heart_measure, "participant_id"]]
         negative_class_baseline_hr = negative_class_baseline.groupby(['participant_id']).mean().reset_index()
 
-        positive_class_baseline = total_data_participant[total_data_participant["category"] == positive_class][["hr_mean", "participant_id", "label"]]
+        positive_class_baseline = total_data_participant[total_data_participant["category"] == positive_class][[heart_measure, "participant_id", "label"]]
         positive_class_baseline_hr_label = positive_class_baseline.groupby(["participant_id", "label"]).mean().reset_index()
 
         # merge now
@@ -207,10 +209,10 @@ class ECGDataset:
         print(f"number ids {len(positive_class_baseline_hr_label['participant_id'].unique())}")
 
         # Rename the column names (hr_mean_x is now HR_mean_experimental)
-        positive_class_baseline_hr_label = positive_class_baseline_hr_label.rename(columns={"hr_mean_x": "hr_mean_experiment_condition",
-                                                 "hr_mean_y": "hr_mean_baseline_condition"})
+        positive_class_baseline_hr_label = positive_class_baseline_hr_label.rename(columns={f"{heart_measure}_x": "hrv_mean_experiment_condition",
+                                                 f"{heart_measure}_y": "hrv_mean_baseline_condition"})
 
-        positive_class_baseline_hr_label["hr_reactivity"] = positive_class_baseline_hr_label["hr_mean_experiment_condition"] - positive_class_baseline_hr_label["hr_mean_baseline_condition"]
+        positive_class_baseline_hr_label["hrv_reactivity"] = positive_class_baseline_hr_label["hrv_mean_experiment_condition"] - positive_class_baseline_hr_label["hrv_mean_baseline_condition"]
         all_participants = set(positive_class_baseline_hr_label["participant_id"].unique())
         participants_per_label = positive_class_baseline_hr_label.groupby("label")["participant_id"].unique()
 
@@ -225,7 +227,7 @@ class ECGDataset:
 
         for label in positive_class_baseline_hr_label["label"].unique():
             hr_reactivity_data = positive_class_baseline_hr_label.loc[
-                positive_class_baseline_hr_label["label"] == label, "hr_reactivity"
+                positive_class_baseline_hr_label["label"] == label, "hrv_reactivity"
             ]
 
             if not hr_reactivity_data.empty:
@@ -236,8 +238,7 @@ class ECGDataset:
         for label, result in t_test_results.items():
             print(f"Label: {label}, t-statistic: {result['t-statistic']:.3f}, p-value: {result['p-value']:.3e}")
 
-        hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hr_reactivity"]].groupby(["label"]).describe()
-        print(hr_reactivity_statistics)
+        hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hrv_reactivity"]].groupby(["label"]).describe()
 
         unique_experiment_conditions = set(positive_class_baseline_hr_label["label"].unique())
 
@@ -255,10 +256,9 @@ class ECGDataset:
         for experiment_condition in unique_experiment_conditions:
             hr_reactivity_data = \
             positive_class_baseline_hr_label[positive_class_baseline_hr_label['label'] == experiment_condition][
-                "hr_reactivity"]
+                "hrv_reactivity"]
             if not hr_reactivity_data.empty:
                 p_value = t_test_results[experiment_condition]['p-value']
-                t_statistic = np.round(t_test_results[experiment_condition]['t-statistic'], 4)
 
                 label = (f"{experiment_condition.replace('_', ' ')}, t-test: p < 0.05"
                          if p_value < 0.05 else f"{experiment_condition.replace('_', ' ')}")
@@ -266,20 +266,15 @@ class ECGDataset:
                 sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
                             label=label, fill=True, alpha=0.25)
 
-                # sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
-                #             label=f"{experiment_condition.replace('_',' ')}, "
-                #                   f"t-test: p < 0.05  {
-                #                   np.round(t_test_results[experiment_condition]['t-statistic'], 4)
-                #                   }",
-                #             fill=True, alpha=0.25)
         # Customize the plot
         plt.xlabel('Heart Rate Reactivity')
         plt.ylabel('Density')
         plt.legend()
-        save_path = os.path.join(save_path, f"histogram_heart_rate_reactivity_label.png")
+        save_path = os.path.join(save_path, f"histogram_heart_rate_variability_reactivity_label_measure_{heart_measure}.png")
         plt.savefig(save_path, dpi=500, bbox_inches='tight')
         if show_plot:
             plt.show()
+            plt.close()
         plt.close()
 
     def plot_histogram(self,
@@ -368,8 +363,10 @@ class ECGDataset:
                 save_path = os.path.join(save_path, f"histogram_{column}.png")
 
             plt.savefig(save_path, dpi=500, bbox_inches='tight')
+            plt.close()
         if show_plot:
             plt.show()
+            plt.close()
 
         plt.close()
 
@@ -1499,7 +1496,121 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), sa
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=600, bbox_inches="tight", transparent=True)
+        plt.savefig(save_path, dpi=600, bbox_inches="tight", transparent=False)
 
+    plt.close()
+
+
+
+def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root: str, comparison: str) -> None:
+    """
+    Plot model performance across feature subsets with confidence intervals.
+
+    Args:
+        results: Nested dict {model_type: {feature_set: results_dict}}
+        metric: Performance metric to plot ('roc_auc', 'pr_auc', etc.)
+        figures_path_root: Path to save the figure.
+        comparison: What comparison is plotted.
+    """
+    plt.figure(figsize=(10, 6))  # Adjust figure size
+
+    # Set figure style for publication
+    plt.rcParams.update({
+        'font.size': 14,
+        'font.family': 'Arial',
+        'axes.labelsize': 16,
+        'axes.titlesize': 16,
+        'xtick.labelsize': 14,
+        'ytick.labelsize': 14,
+        'legend.fontsize': 12,
+        'legend.frameon': True,
+        'legend.edgecolor': 'black',
+        'figure.dpi': 300,
+    })
+
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # Get unique models and feature sets
+    model_types = sorted(results.keys())
+    feature_sets = sorted({fs for model in results.values() for fs in model.keys()})
+
+    # Reduce spacing between models
+    x = np.arange(len(model_types)) * 0.8  # Reduce model spacing
+    width = 0.08  # Smaller width for tighter grouping
+
+    handles = []
+    for idx, feature_set in enumerate(feature_sets):
+        means, ci_lower, ci_upper = [], [], []
+
+        for model_type in model_types:
+            result = results[model_type].get(feature_set)
+            if result and metric in result:
+                means.append(result[metric]['mean'])
+                ci_lower.append(result[metric]['ci_lower'])
+                ci_upper.append(result[metric]['ci_upper'])
+            else:
+                means.append(np.nan)
+                ci_lower.append(np.nan)
+                ci_upper.append(np.nan)
+
+        means = np.array(means)
+        ci_lower = np.array(ci_lower)
+        ci_upper = np.array(ci_upper)
+
+        # Compute x positions
+        x_pos = x + (idx - len(feature_sets)/2 + 0.5) * width
+
+        # Color scheme: Distinguish full vs. subset
+        # color = COLORS_DICT[feature_set]  # Define your colors for full vs. subset
+        # # hatch = '' if 'full' in feature_set.lower() else '//'  # Hatch pattern for subsets
+
+        valid_idx = ~np.isnan(means)
+        if np.any(valid_idx):
+            # handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
+            #                       yerr=[means[valid_idx] - ci_lower[valid_idx],
+            #                             ci_upper[valid_idx] - means[valid_idx]],
+            #                       fmt='o', capsize=4, capthick=1.8, markersize=7,
+            #                       color=color, label=feature_set, elinewidth=1.8)
+
+            handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
+                                  yerr=[means[valid_idx] - ci_lower[valid_idx],
+                                        ci_upper[valid_idx] - means[valid_idx]],
+                                  fmt='o', capsize=4, capthick=1.8, markersize=7,
+                                  label=feature_set, elinewidth=1.8)
+
+            # Prevent overlapping labels
+            y_positions = []
+            offset = 0.015 * (max(means[valid_idx]) - min(means[valid_idx]))
+
+            for pos, mean in zip(x_pos[valid_idx], means[valid_idx]):
+                new_y = mean
+                while any(abs(new_y - y) < offset for y in y_positions):
+                    new_y -= offset
+
+                plt.text(pos, new_y, f'{mean:.3f}', ha='center', va='bottom',
+                         color='black', fontsize=12, fontweight="bold")
+                y_positions.append(new_y)
+
+            handles.append(handle)
+
+    # Customize plot
+    plt.xlabel('Model Type')
+    plt.ylabel(metric.replace('_', ' ').title())
+
+    # Set x-ticks to model types
+    plt.xticks(x, model_types)
+
+    # Adjust legend positioning
+    plt.legend(loc='upper left', bbox_to_anchor=(1.01, 1), title="Number of Features")
+
+    # Add grid
+    plt.grid(True, linestyle='--', alpha=0.5)
+
+    # Save figure
+    plt.tight_layout()
+    save_path = os.path.join(figures_path_root, f'{comparison}_feature_subset_comparison_{metric}.png')
+    # plt.savefig(save_path, bbox_inches='tight', dpi=400)
     plt.show()
     plt.close()
