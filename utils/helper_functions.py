@@ -290,7 +290,15 @@ class ECGDataset:
                                       heart_measure="hrv_mean"):
         # We calculate the average HR reactivity based on participant id
         total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
-        negative_class_baseline = total_data_participant[total_data_participant["label"] == reference.capitalize()][
+
+        if reference.lower() == "sitting":
+            column = "label"
+        elif reference.lower() == "baseline":
+            column = "category"
+        else:
+            raise ValueError("Please input either reference 'sitting' or 'baseline'")
+
+        negative_class_baseline = total_data_participant[total_data_participant[column] == reference][
             [heart_measure, "participant_id"]]
         negative_class_baseline_hr = negative_class_baseline.groupby(['participant_id']).mean().reset_index()
 
@@ -408,7 +416,7 @@ class ECGDataset:
             order=ordered_labels,
             color='gray',
             size=3.5,
-            alpha=0.4,
+            alpha=0.5,
             jitter=True,
             dodge=True,
             ax=ax
@@ -426,6 +434,7 @@ class ECGDataset:
         y_buffer = y_range * 0.03  # Smaller buffer for tighter placement
 
         # Add significance markers
+        significance_present = 0
         for i, label in enumerate(ordered_labels):
             if t_test_results[label]['p-value'] < 0.001:
                 significance = '***'
@@ -435,6 +444,7 @@ class ECGDataset:
                 significance = '*'
             else:
                 significance = 'ns'
+                significance_present = 1
 
             # Get the max value for this specific label
             current_max = max_vals.get(label, y_max)
@@ -473,7 +483,7 @@ class ECGDataset:
 
         # Add main elements
         legend_items.append(mlines.Line2D([], [], color='red', linestyle="--",
-                                          lw=1.5, alpha=0.7, label='Baseline'))
+                                          lw=1.5, alpha=0.7, label='HR reactivity threshold'))
         legend_items.append(
             mlines.Line2D([], [], marker='D', color='white', markerfacecolor='black', markersize=8, label='Mean'))
         legend_items.append(mlines.Line2D([], [], marker='_', color='black', lw=1.5, markersize=10, label='Median'))
@@ -489,6 +499,10 @@ class ECGDataset:
         legend_items.append(mlines.Line2D([], [], color='black', marker='$**$', markersize=10, linestyle='', label='p < 0.01'))
         legend_items.append(mlines.Line2D([], [], color='black', marker='$***$', markersize=15, linestyle='', label='p < 0.001'))
 
+        if significance_present:
+            legend_items.append(
+                mlines.Line2D([], [], color='black', marker='$ns$', markersize=10, linestyle='', label='no significance'))
+
         # Create legend with better formatting
         legend = ax.legend(handles=legend_items,
                            loc='upper left',
@@ -499,8 +513,12 @@ class ECGDataset:
                            fontsize=11)
 
         # Add descriptive text about the calculation method
-        fig.text(0.5, 0.01, f"HRV reactivity calculated as HRV during experimental task minus HRV during {reference.lower()} baseline",
-                 ha='center', fontsize=10, fontstyle='italic')
+        if reference.lower() == "sitting":
+            fig.text(0.5, 0.01, f"HRV reactivity calculated as HRV during experimental task minus HRV during {reference.lower()} baseline",
+                     ha='center', fontsize=10, fontstyle='italic')
+        else:
+            fig.text(0.5, 0.01, f"HRV reactivity calculated as HRV during experimental task minus HRV during baseline (sitting + recovery sitting)",
+                     ha='center', fontsize=10, fontstyle='italic')
 
         # Adjust layout to make room for the legend
         plt.tight_layout(rect=[0, 0.03, 0.85, 1])
