@@ -189,10 +189,11 @@ class ECGDataset:
 
     def get_average_hr_reactivity(self, positive_class, negative_class, save_path,
                                   show_plot=True,
+                                  reference="Sitting",
                                   heart_measure="hrv_mean"):
         # We calculate the average HR reactivity based on participant id
         total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
-        negative_class_baseline = total_data_participant[total_data_participant["category"] == negative_class][[heart_measure, "participant_id"]]
+        negative_class_baseline = total_data_participant[total_data_participant["label"] == reference.capitalize()][[heart_measure, "participant_id"]]
         negative_class_baseline_hr = negative_class_baseline.groupby(['participant_id']).mean().reset_index()
 
         positive_class_baseline = total_data_participant[total_data_participant["category"] == positive_class][[heart_measure, "participant_id", "label"]]
@@ -239,7 +240,10 @@ class ECGDataset:
             print(f"Label: {label}, t-statistic: {result['t-statistic']:.3f}, p-value: {result['p-value']:.3e}")
 
         hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hrv_reactivity"]].groupby(["label"]).describe()
+        hr_reactivity_statistics.columns = ['_'.join(col).strip() for col in hr_reactivity_statistics.columns]
 
+        mean_hr_reactivity = np.round(hr_reactivity_statistics["hrv_reactivity_mean"], 4)
+        print(mean_hr_reactivity)
         unique_experiment_conditions = set(positive_class_baseline_hr_label["label"].unique())
 
         colors_index = {
@@ -259,22 +263,261 @@ class ECGDataset:
                 "hrv_reactivity"]
             if not hr_reactivity_data.empty:
                 p_value = t_test_results[experiment_condition]['p-value']
+                # Get the mean corresponding to this experiment condition
+                mean_condition = mean_hr_reactivity.loc[experiment_condition]
 
-                label = (f"{experiment_condition.replace('_', ' ')}, t-test: p < 0.05"
+                label = (f"{experiment_condition.replace('_', ' ')}: Mean: {mean_condition:.3f} "
+                         f"(p < 0.05)"
                          if p_value < 0.05 else f"{experiment_condition.replace('_', ' ')}")
 
                 sns.kdeplot(hr_reactivity_data, color=colors_index[experiment_condition],
-                            label=label, fill=True, alpha=0.25)
+                            label=label, fill=True, alpha=0.3)
 
         # Customize the plot
-        plt.xlabel('Heart Rate Reactivity')
+        plt.xlabel('Heart Rate Reactivity (Δ HRV relative to baseline)')
         plt.ylabel('Density')
-        plt.legend()
-        save_path = os.path.join(save_path, f"histogram_heart_rate_variability_reactivity_label_measure_{heart_measure}.png")
+        plt.legend(loc='upper left',  title="Task & Statistics", bbox_to_anchor=(1.05, 1))
+        save_path = os.path.join(save_path, f"histogram_heart_rate_variability_reactivity_label_measure_{heart_measure}_reference_{reference}.png")
         plt.savefig(save_path, dpi=500, bbox_inches='tight')
         if show_plot:
             plt.show()
             plt.close()
+        plt.close()
+
+    def get_average_hr_reactivity_box(self, positive_class, negative_class, save_path,
+                                      show_plot=True,
+                                      reference="Sitting",
+                                      heart_measure="hrv_mean"):
+        # We calculate the average HR reactivity based on participant id
+        total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
+        negative_class_baseline = total_data_participant[total_data_participant["label"] == reference.capitalize()][
+            [heart_measure, "participant_id"]]
+        negative_class_baseline_hr = negative_class_baseline.groupby(['participant_id']).mean().reset_index()
+
+        positive_class_baseline = total_data_participant[total_data_participant["category"] == positive_class][
+            [heart_measure, "participant_id", "label"]]
+        positive_class_baseline_hr_label = positive_class_baseline.groupby(
+            ["participant_id", "label"]).mean().reset_index()
+
+        # merge now
+        positive_class_baseline_hr_label = pd.merge(
+            positive_class_baseline_hr_label,
+            negative_class_baseline_hr,
+            on="participant_id",
+            how="left"
+        )
+
+        print(f"number ids {len(positive_class_baseline_hr_label['participant_id'].unique())}")
+
+        # Rename the column names (hr_mean_x is now HR_mean_experimental)
+        positive_class_baseline_hr_label = positive_class_baseline_hr_label.rename(
+            columns={f"{heart_measure}_x": "hrv_mean_experiment_condition",
+                     f"{heart_measure}_y": "hrv_mean_baseline_condition"})
+
+        positive_class_baseline_hr_label["hrv_reactivity"] = positive_class_baseline_hr_label[
+                                                                 "hrv_mean_experiment_condition"] - \
+                                                             positive_class_baseline_hr_label[
+                                                                 "hrv_mean_baseline_condition"]
+        all_participants = set(positive_class_baseline_hr_label["participant_id"].unique())
+        participants_per_label = positive_class_baseline_hr_label.groupby("label")["participant_id"].unique()
+
+        # logging what participants are missing
+        for label in participants_per_label.index:
+            missing = all_participants - set(participants_per_label[label])
+            if missing:
+                print(f"Missing in {label}: {missing}")
+
+        # Perform t-tests for each label
+        t_test_results = {}
+
+        for label in positive_class_baseline_hr_label["label"].unique():
+            hr_reactivity_data = positive_class_baseline_hr_label.loc[
+                positive_class_baseline_hr_label["label"] == label, "hrv_reactivity"
+            ]
+
+            if not hr_reactivity_data.empty:
+                t_stat, p_value = ttest_1samp(hr_reactivity_data, popmean=0, nan_policy='omit')
+                t_test_results[label] = {"t-statistic": t_stat, "p-value": p_value}
+
+        # Print results
+        for label, result in t_test_results.items():
+            print(f"Label: {label}, t-statistic: {result['t-statistic']:.3f}, p-value: {result['p-value']:.3e}")
+
+        hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hrv_reactivity"]].groupby(
+            ["label"]).describe()
+        hr_reactivity_statistics.columns = ['_'.join(col).strip() for col in hr_reactivity_statistics.columns]
+
+        mean_hr_reactivity = np.round(hr_reactivity_statistics["hrv_reactivity_mean"], 4)
+
+        # Set publication-quality plot aesthetics
+        sns.set_style("ticks")  # Use ticks instead of whitegrid
+        plt.rcParams.update({
+            'font.family': 'Arial',
+            'font.size': 12,
+            'axes.linewidth': 1.5,
+            'xtick.major.width': 1.5,
+            'ytick.major.width': 1.5,
+            'xtick.direction': 'out',
+            'ytick.direction': 'out'
+        })
+
+        # Color scheme for different conditions
+        colors_index = {
+            'Pasat': '#E69F00',
+            'Pasat_repeat': '#56B4E9',
+            'Raven': '#009E73',
+            'SSST_Sing_countdown': '#0072B2',
+            'TA': '#D55E00',
+            'TA_repeat': '#CC79A7'
+        }
+
+        fig, ax = plt.subplots(figsize=(10, 7))
+        # Remove top and right spines
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # Prepare data for boxplot
+        plot_data = positive_class_baseline_hr_label[['label', 'hrv_reactivity']].copy()
+
+        # Create a custom order based on mean HRV reactivity
+        ordered_labels = mean_hr_reactivity.sort_values().index.tolist()
+
+        # Create the boxplot with customized appearance
+        boxplot = sns.boxplot(
+            x='label',
+            y='hrv_reactivity',
+            data=plot_data,
+            order=ordered_labels,
+            palette=[colors_index[label] for label in ordered_labels],
+            width=0.6,
+            fliersize=4,
+            linewidth=1.0,
+            ax=ax,
+            boxprops={'facecolor': 'none', 'edgecolor': 'none'},  # Remove box fill and border
+            whiskerprops={'color': 'black', 'linestyle': '-'},
+            capprops={'color': 'black'},
+            medianprops={'color': 'black', 'linewidth': 1.5},
+            showfliers=False,
+        )
+
+        # Add individual data points as gray points
+        sns.stripplot(
+            x='label',
+            y='hrv_reactivity',
+            data=plot_data,
+            order=ordered_labels,
+            color='gray',
+            size=3.5,
+            alpha=0.4,
+            jitter=True,
+            dodge=True,
+            ax=ax
+        )
+
+        # Add a horizontal line at y=0 to indicate baseline
+        ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=1.5)
+
+        # Add statistical significance markers
+        # Calculate y-buffer dynamically
+        max_vals = plot_data.groupby('label')['hrv_reactivity'].max()
+        y_max = max_vals.max()
+        y_min = plot_data['hrv_reactivity'].min()
+        y_range = y_max - y_min
+        y_buffer = y_range * 0.03  # Smaller buffer for tighter placement
+
+        # Add significance markers
+        for i, label in enumerate(ordered_labels):
+            if t_test_results[label]['p-value'] < 0.001:
+                significance = '***'
+            elif t_test_results[label]['p-value'] < 0.01:
+                significance = '**'
+            elif t_test_results[label]['p-value'] < 0.05:
+                significance = '*'
+            else:
+                significance = 'ns'
+
+            # Get the max value for this specific label
+            current_max = max_vals.get(label, y_max)
+
+            # Place the significance marker slightly above the max value
+            ax.text(i, current_max + y_buffer, significance,
+                    horizontalalignment='center', fontsize=12, fontweight='bold')
+
+        # Customize the plot appearance
+        ax.set_xlabel('Task', fontsize=14, fontweight='bold')
+        ax.set_ylabel('HRV Reactivity\n(Δ from baseline)', fontsize=14, fontweight='bold')
+
+        # Improve x-tick labels for readability
+        plt.xticks(rotation=45, ha='right')
+        ax.set_xticklabels([label.replace('_', ' ') for label in ordered_labels], fontsize=12)
+
+        # Add subtle grid for y-axis only
+        # ax.yaxis.grid(True, linestyle='--', alpha=0.3)
+        # ax.set_axisbelow(True)
+
+        # Add means to the plot (diamond shape)
+        for i, label in enumerate(ordered_labels):
+            mean_val = mean_hr_reactivity.loc[label]
+            # Diamond marker for mean
+            ax.scatter(i, mean_val, marker='D', s=60, color='black', zorder=10)
+
+        # Create a clean, professional legend - import required modules
+        import matplotlib.lines as mlines
+        from matplotlib.patches import Patch
+
+        # Create legend items with better formatting
+        legend_items = []
+
+        # Add a section header
+        # legend_items.append(mlines.Line2D([], [], color='white', marker='', linestyle='', label='Elements'))
+
+        # Add main elements
+        legend_items.append(mlines.Line2D([], [], color='red', linestyle="--",
+                                          lw=1.5, alpha=0.7, label='Baseline'))
+        legend_items.append(
+            mlines.Line2D([], [], marker='D', color='white', markerfacecolor='black', markersize=8, label='Mean'))
+        legend_items.append(mlines.Line2D([], [], marker='_', color='black', lw=1.5, markersize=10, label='Median'))
+        legend_items.append(
+            mlines.Line2D([], [], marker='o', color='white', markerfacecolor='gray', alpha=0.4, markersize=6,
+                          label='Individual data points'))
+
+        # Add significance section
+        legend_items.append(mlines.Line2D([], [], color='white', marker='', linestyle='', label=' '))
+        legend_items.append(
+            mlines.Line2D([], [], color='white', marker='', linestyle='', label='Statistical Significance'))
+        legend_items.append(mlines.Line2D([], [], color='black', marker='$*$', markersize=5, linestyle='', label='p < 0.05'))
+        legend_items.append(mlines.Line2D([], [], color='black', marker='$**$', markersize=10, linestyle='', label='p < 0.01'))
+        legend_items.append(mlines.Line2D([], [], color='black', marker='$***$', markersize=15, linestyle='', label='p < 0.001'))
+
+        # Create legend with better formatting
+        legend = ax.legend(handles=legend_items,
+                           loc='upper left',
+                           bbox_to_anchor=(1.05, 1),
+                           frameon=True,
+                           framealpha=0.9,
+                           edgecolor='lightgray',
+                           fontsize=11)
+
+        # Add descriptive text about the calculation method
+        fig.text(0.5, 0.01, f"HRV reactivity calculated as HRV during experimental task minus HRV during {reference.lower()} baseline",
+                 ha='center', fontsize=10, fontstyle='italic')
+
+        # Adjust layout to make room for the legend
+        plt.tight_layout(rect=[0, 0.03, 0.85, 1])
+
+        # Save the figure with high resolution
+        save_path = os.path.join(save_path,
+                                 f"boxplot_heart_rate_variability_reactivity_label_measure_{heart_measure}_reference_{reference}.png")
+        plt.savefig(save_path, dpi=600, bbox_inches='tight', format='png')
+
+        # Also save as vector format for journal publication
+        # vector_save_path = os.path.join(save_path,
+        #                                 f"boxplot_heart_rate_variability_reactivity_label_measure_{heart_measure}_reference_{reference}.pdf")
+        # plt.savefig(vector_save_path, bbox_inches='tight', format='pdf')
+
+        if show_plot:
+            plt.show()
+
         plt.close()
 
     def plot_histogram(self,
