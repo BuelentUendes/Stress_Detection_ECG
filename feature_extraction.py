@@ -36,7 +36,7 @@ def main(args):
     print(f"we are processing {input_file}" if args.participant_number != -1 else f"we are processing all files")
 
     Segmenter() \
-        .data(read_csv(os.path.join(input_path, f'{input_file}'), columns=['ECG_Clean', 'ECG_R_Peaks', 'category', 'label'])) \
+        .data(read_csv(os.path.join(input_path, f'{input_file}'), columns=['timestamp', 'ECG_Clean', 'ECG_R_Peaks', 'category', 'label'])) \
         .segment(SlidingWindow(WINDOW_SIZE, STEP_SIZE)) \
             .skip(lambda category: len(set(category)) > 1) \
             .skip(lambda label: len(set(label)) > 1) \
@@ -58,12 +58,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline for extracting features of the cleaned ECG data")
-    parser.add_argument("--sample_frequency", type=int, default=512, help="Sampling rate used for the dataset")
-    parser.add_argument("--window_size", type=int, default=60, help="How many seconds we consider")
-    parser.add_argument("--window_shift", type=float, default=10,
+    parser.add_argument("--sample_frequency", type=int, default=1000, help="Sampling rate used for the dataset")
+    parser.add_argument("--window_size", type=int, default=30, help="How many seconds we consider")
+    parser.add_argument("--window_shift", type=float, default=5,
                         help="How much shift in seconds between consecutive windows.")
     parser.add_argument("--participant_number", type=int, help="which specific number to run. Set -1 for all",
-                        default=30100)
+                        default=30101)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
