@@ -207,8 +207,6 @@ class ECGDataset:
             how="left"
         )
 
-        print(f"number ids {len(positive_class_baseline_hr_label['participant_id'].unique())}")
-
         # Rename the column names (hr_mean_x is now HR_mean_experimental)
         positive_class_baseline_hr_label = positive_class_baseline_hr_label.rename(columns={f"{heart_measure}_x": "hrv_mean_experiment_condition",
                                                  f"{heart_measure}_y": "hrv_mean_baseline_condition"})
@@ -235,15 +233,10 @@ class ECGDataset:
                 t_stat, p_value = ttest_1samp(hr_reactivity_data, popmean=0, nan_policy='omit')
                 t_test_results[label] = {"t-statistic": t_stat, "p-value": p_value}
 
-        # Print results
-        for label, result in t_test_results.items():
-            print(f"Label: {label}, t-statistic: {result['t-statistic']:.3f}, p-value: {result['p-value']:.3e}")
-
         hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hrv_reactivity"]].groupby(["label"]).describe()
         hr_reactivity_statistics.columns = ['_'.join(col).strip() for col in hr_reactivity_statistics.columns]
 
         mean_hr_reactivity = np.round(hr_reactivity_statistics["hrv_reactivity_mean"], 4)
-        print(mean_hr_reactivity)
         unique_experiment_conditions = set(positive_class_baseline_hr_label["label"].unique())
 
         colors_index = {
