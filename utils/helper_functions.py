@@ -21,6 +21,7 @@ from scipy.stats import ttest_1samp
 from numpy.testing import assert_almost_equal
 import pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, QuantileTransformer
 from sklearn import metrics
 from sklearn.svm import SVC
@@ -40,12 +41,14 @@ import xgboost as xgb
 from imblearn.over_sampling import ADASYN, SMOTE
 
 from sklearn.feature_selection import RFE
-from sklearn.model_selection import StratifiedKFold
 import optuna
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import roc_auc_score, balanced_accuracy_score
-
-import shap
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
+from typing import Optional, Tuple, Dict, Union, List
+import warnings
 
 
 def create_directory(path: str) -> None:
@@ -711,20 +714,47 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
     return x, label, y
 
 
-def handle_missing_data(data: pd.DataFrame) -> pd.DataFrame:
-    # Drop rows with infinite values and NaN values
+def handle_missing_data(data: pd.DataFrame, drop_values = True) -> pd.DataFrame:
     original_data_len = len(data)
-    data = data[~data.isin([np.inf, -np.inf]).any(axis=1)]  # Drop rows with infinite values
-    data = data.dropna()  # More efficient way to drop rows with NaN values
 
-    # Assert statements to check if it worked
-    assert not data.isin([np.inf, -np.inf]).any().any(), "infinity data is still detected"  # Check for infinite values
-    assert not data.isna().any().any(), "np.nan data is still detected"  # Check for NaN values
 
-    dropped_percent = ((original_data_len - len(data)) / original_data_len) * 100
-    print(f"We dropped {np.round(dropped_percent, 4)} percent of the original data")
+    # Identify rows and columns with infinity values
+    inf_mask = data.isin([np.inf, -np.inf])
+    rows_with_inf = inf_mask.any(axis=1)
+    cols_with_inf = inf_mask.any(axis=0)
 
-    return data
+    print(f"Rows with infinity values: {rows_with_inf.sum()}")
+    print(f"Columns with infinity values:")
+    for col in data.columns[cols_with_inf]:
+        inf_count = inf_mask[col].sum()
+        print(f"  - {col}: {inf_count} infinity values ({(inf_count / len(data)) * 100:.2f}%)")
+
+    # We drop the colum completely:
+    # Identify rows and columns with NaN values
+    nan_mask = data.isna()
+    rows_with_nan = nan_mask.any(axis=1)
+    cols_with_nan = nan_mask.any(axis=0)
+
+    # Get rows with infinity values
+    print(f"Rows with NaN values: {rows_with_nan.sum()}")
+    print(f"Columns with NaN values:")
+    for col in data.columns[cols_with_nan]:
+        nan_count = nan_mask[col].sum()
+        print(f"  - {col}: {nan_count} NaN values ({(nan_count / len(data)) * 100:.2f}%)")
+
+    # Drop both data now (infinity data and missing values)
+    if drop_values:
+        clean_data = data[~data.isin([np.inf, -np.inf]).any(axis=1)]
+        clean_data = clean_data.dropna()
+
+        dropped_percent = ((original_data_len - len(clean_data)) / original_data_len) * 100
+        print(f"Dropping these rows removed {np.round(dropped_percent, 4)}% of the original data")
+
+    # Else we can impute the data with KNN imputer for instance
+    else:
+        raise NotImplementedError("We have not yet implemented the imputation method")
+
+    return clean_data
 
 
 def resample_data(data: pd.DataFrame,
@@ -786,12 +816,14 @@ def resample_data(data: pd.DataFrame,
 def prepare_data(train_data: pd.DataFrame,
                  val_data: pd.DataFrame,
                  test_data: Optional[pd.DataFrame] = None,
+                 imputation_method: Optional[str] = "knn",
                  positive_class: Optional[str] = "mental_stress",
                  negative_class: Optional[str] = "baseline",
                  resampling_method: Optional[str] = None,
                  scaler: Optional[str] = None,
                  use_quantile_transformer: Optional[bool] = False,
                  use_subset: Optional[list[bool]] = None) -> tuple:
+
     """
     Prepares the data for scikit-learn models. Can handle both 2-way (train/val) and 3-way (train/val/test) splits.
     
@@ -799,6 +831,7 @@ def prepare_data(train_data: pd.DataFrame,
         train_data: DataFrame containing the training data
         val_data: DataFrame containing the validation data
         test_data: Optional DataFrame containing the test data. If None, assumes 2-way split
+        imputation_method: Optional. Str. Either 'drop', 'knn' or 'knn_subset'
         positive_class: str, which category to be encoded as 1
         negative_class: str, which category to be encoded as 0
         scaler: StandardScaler instance for normalization
@@ -812,30 +845,37 @@ def prepare_data(train_data: pd.DataFrame,
         If test_data is None:
             Tuple of ((X_train, y_train), (X_val, y_val), feature_names)
     """
-    # Handle missing data for provided datasets
-    train_data = handle_missing_data(train_data)
 
-    if val_data is not None:
-        val_data = handle_missing_data(val_data)
-    if test_data is not None:
-        test_data = handle_missing_data(test_data)
+    # Old code
+    assert imputation_method in ["drop", "knn", "knn_subset", "iterative_imputer"], \
+        "Please use as imputation method either 'knn', 'drop' or 'knn_subset'."
 
-    # # Calculate sd1_sd2 feature
-    # train_data["sd1_sd2"] = train_data["sd1"] / train_data["sd2"]
-    # val_data["sd1_sd2"] = val_data["sd1"] / val_data["sd2"]
-    # if test_data is not None:
-    #     test_data["sd1_sd2"] = test_data["sd1"] / test_data["sd2"]
+    if imputation_method == "drop":
+        train_data.drop('sampen', axis=1, inplace=True)
+        test_data.drop('sampen', axis=1, inplace=True)
+        val_data.drop('sampen', axis=1, inplace=True)
+
+        train_data = handle_missing_data(train_data)
+
+        if val_data is not None:
+            val_data = handle_missing_data(val_data)
+        if test_data is not None:
+            test_data = handle_missing_data(test_data)
 
     # Use resampling if provided
     if resampling_method is not None:
         # First encode all available data
         x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
+        # We have not yet cleaned up missing values, so we replace them with nan values first
+        x_train = x_train.replace([np.inf, -np.inf], np.nan)
 
         if val_data is not None:
             x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
+            x_val = x_val.replace([np.inf, -np.inf], np.nan)
 
         if test_data is not None:
             x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
+            x_test = x_test.replace([np.inf, -np.inf], np.nan)
 
         if use_subset is not None:
             # Ensure the length of use_subset matches the number of features
@@ -867,11 +907,17 @@ def prepare_data(train_data: pd.DataFrame,
         train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
         x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
 
+        # We have not yet cleaned up missing values, so we replace them with nan values first
+        x_train = x_train.replace([np.inf, -np.inf], np.nan)
+
+        # Could we handle the missing data here?
         if val_data is not None:
             x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
+            x_val = x_val.replace([np.inf, -np.inf], np.nan)
 
         if test_data is not None:
             x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
+            x_test = x_test.replace([np.inf, -np.inf], np.nan)
 
         # Ensure the length of use_subset matches the number of features
         if use_subset is not None:
@@ -908,6 +954,18 @@ def prepare_data(train_data: pd.DataFrame,
             if use_quantile_transformer:
                 x_test = quantile_transformer_obj.transform(x_test)
             x_test = scaler_obj.transform(x_test)
+
+    # Here we should use the KNN imputer then
+    if imputation_method in ["knn", "iterative_imputer"]:
+        imputer = KNNImputer(n_neighbors=5, copy=False) if imputation_method == "knn" else IterativeImputer(max_iter=10, random_state=0)
+
+        imputer.fit(x_train)
+        x_train = imputer.transform(x_train)
+        x_val = imputer.transform(x_val)
+        x_test = imputer.transform(x_test)
+
+        # Check if any missing values are still present:
+        assert np.isnan(x_train).sum() == np.isnan(x_val).sum() == np.isnan(x_val).sum() == 0, "Imputation did not work!"
 
     # Return appropriate tuple based on whether test_data was provided
     if test_data is not None and val_data is not None:
