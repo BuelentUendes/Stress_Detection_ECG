@@ -826,7 +826,7 @@ def prepare_data(train_data: pd.DataFrame,
 
     """
     Prepares the data for scikit-learn models. Can handle both 2-way (train/val) and 3-way (train/val/test) splits.
-    
+
     Args:
         train_data: DataFrame containing the training data
         val_data: DataFrame containing the validation data
@@ -838,7 +838,7 @@ def prepare_data(train_data: pd.DataFrame,
         use_quantile_transformer: If set, we transform the features to normal distribution first
         resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
         use_subset: bool, list of bool to indicate which features should be included or not
-    
+
     Returns:
         If test_data is provided:
             Tuple of ((X_train, y_train), (X_val, y_val), (X_test, y_test), feature_names)
@@ -850,10 +850,15 @@ def prepare_data(train_data: pd.DataFrame,
     assert imputation_method in ["drop", "knn", "knn_subset", "iterative_imputer"], \
         "Please use as imputation method either 'knn', 'drop' or 'knn_subset'."
 
+    # Sampen
     if imputation_method == "drop":
-        train_data.drop('sampen', axis=1, inplace=True)
-        test_data.drop('sampen', axis=1, inplace=True)
-        val_data.drop('sampen', axis=1, inplace=True)
+        if 'sampen' in train_data.columns:
+        # Check if sampen is included in the data columns
+            train_data.drop('sampen', axis=1, inplace=True)
+        if 'sampen' in test_data.columns:
+            test_data.drop('sampen', axis=1, inplace=True)
+        if 'sampen' in val_data.columns:
+            val_data.drop('sampen', axis=1, inplace=True)
 
         train_data = handle_missing_data(train_data)
 
@@ -862,75 +867,34 @@ def prepare_data(train_data: pd.DataFrame,
         if test_data is not None:
             test_data = handle_missing_data(test_data)
 
-    # Use resampling if provided
-    if resampling_method is not None:
-        # First encode all available data
-        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
-        # We have not yet cleaned up missing values, so we replace them with nan values first
-        x_train = x_train.replace([np.inf, -np.inf], np.nan)
+    # If no resampling, just shuffle and encode the data
+    train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
+    x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
+
+    # We have not yet cleaned up missing values, so we replace them with nan values first
+    x_train = x_train.replace([np.inf, -np.inf], np.nan)
+
+    # Could we handle the missing data here?
+    if val_data is not None:
+        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
+        x_val = x_val.replace([np.inf, -np.inf], np.nan)
+
+    if test_data is not None:
+        x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
+        x_test = x_test.replace([np.inf, -np.inf], np.nan)
+
+    # Ensure the length of use_subset matches the number of features
+    if use_subset is not None:
+        assert len(use_subset) == x_train.shape[1], \
+            f"Length of use_subset ({len(use_subset)}) must match number of features ({x_train.shape[1]})"
+
+        # Filter features using boolean mask
+        x_train = x_train.iloc[:, use_subset]
 
         if val_data is not None:
-            x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
-            x_val = x_val.replace([np.inf, -np.inf], np.nan)
-
+            x_val = x_val.iloc[:, use_subset]
         if test_data is not None:
-            x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
-            x_test = x_test.replace([np.inf, -np.inf], np.nan)
-
-        if use_subset is not None:
-            # Ensure the length of use_subset matches the number of features
-            assert len(use_subset) == x_train.shape[1], \
-                f"Length of use_subset ({len(use_subset)}) must match number of features ({x_train.shape[1]})"
-            
-            # Filter features using boolean mask
-            x_train = x_train.iloc[:, use_subset]
-            if val_data is not None:
-                x_val = x_val.iloc[:, use_subset]
-            if test_data is not None:
-                x_test = x_test.iloc[:, use_subset]
-
-        # Apply resampling only to training data
-        if resampling_method in ["downsample", "upsample"]:
-            do_downsampling = resampling_method == "downsample"
-            train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
-            x_train, y_train = encode_data(train_data, positive_class, negative_class)
-
-        elif resampling_method == "smote":
-            smote = SMOTE(random_state=42)
-            x_train, y_train = smote.fit_resample(x_train, y_train)
-
-        elif resampling_method == "adasyn":
-            adasyn = ADASYN(random_state=42)
-            x_train, y_train = adasyn.fit_resample(x_train, y_train)
-    else:
-        # If no resampling, just shuffle and encode the data
-        train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
-        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
-
-        # We have not yet cleaned up missing values, so we replace them with nan values first
-        x_train = x_train.replace([np.inf, -np.inf], np.nan)
-
-        # Could we handle the missing data here?
-        if val_data is not None:
-            x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
-            x_val = x_val.replace([np.inf, -np.inf], np.nan)
-
-        if test_data is not None:
-            x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
-            x_test = x_test.replace([np.inf, -np.inf], np.nan)
-
-        # Ensure the length of use_subset matches the number of features
-        if use_subset is not None:
-            assert len(use_subset) == x_train.shape[1], \
-                f"Length of use_subset ({len(use_subset)}) must match number of features ({x_train.shape[1]})"
-
-            # Filter features using boolean mask
-            x_train = x_train.iloc[:, use_subset]
-
-            if val_data is not None:
-                x_val = x_val.iloc[:, use_subset]
-            if test_data is not None:
-                x_test = x_test.iloc[:, use_subset]
+            x_test = x_test.iloc[:, use_subset]
 
     feature_names = list(x_train.columns.values)
 
@@ -966,6 +930,20 @@ def prepare_data(train_data: pd.DataFrame,
 
         # Check if any missing values are still present:
         assert np.isnan(x_train).sum() == np.isnan(x_val).sum() == np.isnan(x_val).sum() == 0, "Imputation did not work!"
+
+    # Apply resampling only to training data
+    if resampling_method in ["downsample", "upsample"]:
+        do_downsampling = resampling_method == "downsample"
+        train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
+        x_train, y_train = encode_data(train_data, positive_class, negative_class)
+
+    elif resampling_method == "smote":
+        smote = SMOTE(random_state=42)
+        x_train, y_train = smote.fit_resample(x_train, y_train)
+
+    elif resampling_method == "adasyn":
+        adasyn = ADASYN(random_state=42)
+        x_train, y_train = adasyn.fit_resample(x_train, y_train)
 
     # Return appropriate tuple based on whether test_data was provided
     if test_data is not None and val_data is not None:
