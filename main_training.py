@@ -46,7 +46,8 @@ LABEL_ABBREVIATION_DICT = {
     "high_physical_activity": "HPA",
     "moderate_physical_activity": "MPA",
     "low_physical_activity": "LPA",
-    "rest": "REST"
+    "rest": "REST",
+    "any_physical_activity": "ANY_PHY",
 }
 
 
@@ -170,7 +171,7 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
         return None
 
 
-def load_top_features(file_path: str, file_name:str, threshold: float, random: bool=False,
+def load_top_features(file_path: str, file_name:str, top_k: int = 5,  random: bool=False,
                       random_k: int = 20) -> list[str]:
     try:
         with open(os.path.join(file_path, file_name)) as file:
@@ -179,9 +180,16 @@ def load_top_features(file_path: str, file_name:str, threshold: float, random: b
 
             # Now pick either features that are selected up to threshold or random
             if not random:
-                selected_features_pairs = [feature for feature in feature_selection_results if feature[1] >= threshold]
-                # We need a list of features only
-                feature_names = [feature[0] for feature in selected_features_pairs if feature[1] >= threshold]
+                feature_names = []
+                feature_idx = 0
+
+                while len(feature_names) < top_k:
+                    feature_names.append(feature_selection_results[feature_idx][0])
+                    feature_idx += 1
+
+                # selected_features_pairs = [feature for feature in feature_selection_results if feature[1] >= threshold]
+                # # We need a list of features only
+                # feature_names = [feature[0] for feature in selected_features_pairs if feature[1] >= threshold]
             else:
                 print(f"we use a random subset of {random_k} features")
                 feature_names_list = [feature[0] for feature in feature_selection_results]
@@ -200,6 +208,7 @@ def get_save_name(study_name: str,
                   use_default_values: bool,
                   use_feature_selection: bool,
                   use_feature_subset: bool,
+                  top_k_features: int,
                   bootstrap: bool,
                   subcategories: bool,
                   random_subset: bool = False,
@@ -223,7 +232,7 @@ def get_save_name(study_name: str,
     middle = "DEFAULT_" if use_default_values else ""
     suffix = "_feature_selection" if use_feature_selection else ""
     if use_feature_subset and not random_subset:
-        suffix_2 = "_subset_features" if use_feature_subset else ""
+        suffix_2 = f"_subset_features_{str(top_k_features)}" if use_feature_subset else ""
     elif use_feature_subset and random_subset:
         suffix_2 = "_subset_features_random"
     else:
@@ -350,8 +359,13 @@ def main(args):
     create_directory(figures_path_root)
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
 
-    ecg_dataset.get_average_hr_reactivity(args.positive_class, args.negative_class, save_path=figures_path_hist, show_plot=False)
-    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
+    if args.negative_class in ["baseline"]:
+        # We plot the reference HR reactivity only always against the true negative reference class sitting
+        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
+                                                  reference=args.negative_class, show_plot=False)
+        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
+                                                  reference="Sitting", show_plot=False)
+        ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
@@ -401,7 +415,7 @@ def main(args):
             args.feature_subset = load_top_features(
                 file_path=results_path_feature_selection,
                 file_name="feature_importance_total_selected.json",
-                threshold=100, # Only take the ones that are always selected
+                top_k=args.top_k_features,
                 random=args.use_random_subset_features,
                 random_k=10
             )
@@ -453,6 +467,7 @@ def main(args):
             use_default_values=args.use_default_values, 
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
+            top_k_features=args.top_k_features,
             bootstrap=False,
             subcategories=False,
             random_subset=args.use_random_subset_features,
@@ -477,6 +492,7 @@ def main(args):
             use_default_values=args.use_default_values,
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
+            top_k_features=args.top_k_features,
             bootstrap=True,
             subcategories=False,
             random_subset=args.use_random_subset_features,
@@ -492,6 +508,7 @@ def main(args):
                 use_default_values=args.use_default_values,
                 use_feature_selection=args.use_feature_selection,
                 use_feature_subset=args.use_feature_subset,
+                top_k_features=args.top_k_features,
                 bootstrap=True,
                 subcategories=True,
                 random_subset=args.use_random_subset_features,
@@ -557,7 +574,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1",
-                        default="mental_stress",
+                        default="any_physical_activity",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
                         default="baseline",
@@ -570,7 +587,7 @@ if __name__ == "__main__":
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
                         default=1000, type=int)
-    parser.add_argument("--window_size", type=int, default=60,
+    parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=float, default=10,
                         help="The window shift that we use for detecting stress")
@@ -591,7 +608,7 @@ if __name__ == "__main__":
     parser.add_argument("--bootstrap_test_results", action="store_true",
                         help="if set, we use bootstrapping to get uncertainty estimates of the test performance.")
     parser.add_argument("--bootstrap_samples", help="number of bootstrap samples.",
-                        default=200, type=int)
+                        default=200, type=int) # What happens if I do 1000? samples, so far the analysis is with 200
     parser.add_argument("--bootstrap_method",
                         help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
                         default="quantile")
@@ -600,9 +617,9 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
     parser.add_argument("--use_feature_selection", action="store_true",
                         help="Boolean. If set, we use feature selection")
-    parser.add_argument("--min_features", type=int, default=10,
+    parser.add_argument("--min_features", type=int, default=5,
                        help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=20,
+    parser.add_argument("--max_features", type=int, default=50,
                        help="Maximum number of features to select")
     parser.add_argument("--use_feature_subset",
                         help="instead of using full set of features, use only a subset of features defined in args.subset",
@@ -614,6 +631,9 @@ if __name__ == "__main__":
     parser.add_argument("--use_top_features",
                         help="If set, we use the top features that were selected 100% of the time during feature selection",
                         action="store_true")
+    parser.add_argument("--top_k_features",
+                        help="If use top features is set, how many features we want to select.",
+                        default=5, type=int)
     parser.add_argument("--use_random_subset_features",
                         help="If set, we use a random subset of features.",
                         action="store_true")
@@ -638,9 +658,10 @@ if __name__ == "__main__":
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
     args.add_calibration_plots = True
-    args.use_feature_subset = True
-    args.use_top_features = True
-
+    # args.use_feature_subset = True
+    # args.use_top_features = True
+    args.do_hyperparameter_tuning = True
+    args.get_model_explanations = True
     # Set seed for reproducibility
     set_seed(args.seed)
 
@@ -648,6 +669,16 @@ if __name__ == "__main__":
 
     # Useful discussion for the choice of evaluation metrics:
     # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
+
+    #ToDo:
+    # Do physical activity vs baseline -> should be high performant.
+    # SSST smote upsampling. Stratified approach (either upsample or downsample)
+    # Normally then we should see an improved performance in the SSST as well
+    # (as the reason why this performs so low is bc of the small sample size).
+    # Do the feature reduction experiments as well.
+    # From 104 to 20 to 10
+    # Get the explanations for the ones with fewer features
+    # Get the random also
 
     #ToDo:
     # Add similarity DTW time-series, check how fast this is

@@ -193,7 +193,8 @@ class ECGDataset:
     def get_average_hr_reactivity(self, positive_class, negative_class, save_path,
                                   show_plot=True,
                                   reference="Sitting",
-                                  heart_measure="hrv_mean"):
+                                  heart_measure="hrv_mean",
+                                  verbose=False):
         # We calculate the average HR reactivity based on participant id
         total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
         negative_class_baseline = total_data_participant[total_data_participant["label"] == reference.capitalize()][[heart_measure, "participant_id"]]
@@ -219,10 +220,11 @@ class ECGDataset:
         participants_per_label = positive_class_baseline_hr_label.groupby("label")["participant_id"].unique()
 
         # logging what participants are missing
-        for label in participants_per_label.index:
-            missing = all_participants - set(participants_per_label[label])
-            if missing:
-                print(f"Missing in {label}: {missing}")
+        if verbose:
+            for label in participants_per_label.index:
+                missing = all_participants - set(participants_per_label[label])
+                if missing:
+                    print(f"Missing in {label}: {missing}")
 
         # Perform t-tests for each label
         t_test_results = {}
@@ -691,14 +693,32 @@ class ECGDataset:
 #Todo: Extend to multiclass classification
 def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # First drop data that is not either in the positive class or negative class
-    if negative_class != "rest":
-        data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
+
+    if (negative_class == "any_physical_activity") or (positive_class == "any_physical_activity"):
+        possible_physical_activities =  ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
+
+        if negative_class == "any_physical_activity":
+            data = data[
+                (data['category'] == positive_class) | (data['category'].isin(possible_physical_activities))]  # Filter relevant classes
+        else:
+            data = data[
+                (data['category'] == negative_class) | (data['category'].isin(possible_physical_activities))]
+
         # Then label the data 1 for positive and 0 for negative
+        if positive_class == "any_physical_activity":
+            data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x in possible_physical_activities else 0)  # Encode classes
+        else:
+            data.loc[:, 'category'] = data['category'].apply(
+                lambda x: 1 if x == positive_class else 0)  # Encode classes
+
+    elif negative_class == "rest":
+        # By rest we mean everything without high physical_activity
+        data = data[(data["category"] != "high_physical_activity")]
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     else:
-        # By rest we mean everything without high physical_activity
-        data = data[(data["category"] != "high_physical_activity")]
+        data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
+        # Then label the data 1 for positive and 0 for negative
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     # Split data into x_data and y_data
