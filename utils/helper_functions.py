@@ -855,7 +855,7 @@ def prepare_data(train_data: pd.DataFrame,
         if 'sampen' in train_data.columns:
         # Check if sampen is included in the data columns
             train_data.drop('sampen', axis=1, inplace=True)
-        if 'sampen' in test_data.columns:
+        if (test_data is not None) and ('sampen' in test_data.columns):
             test_data.drop('sampen', axis=1, inplace=True)
         if 'sampen' in val_data.columns:
             val_data.drop('sampen', axis=1, inplace=True)
@@ -925,11 +925,13 @@ def prepare_data(train_data: pd.DataFrame,
 
         imputer.fit(x_train)
         x_train = imputer.transform(x_train)
-        x_val = imputer.transform(x_val)
-        x_test = imputer.transform(x_test)
+        if val_data is not None:
+            x_val = imputer.transform(x_val)
+        if test_data is not None:
+            x_test = imputer.transform(x_test)
 
         # Check if any missing values are still present:
-        assert np.isnan(x_train).sum() == np.isnan(x_val).sum() == np.isnan(x_val).sum() == 0, "Imputation did not work!"
+        assert np.isnan(x_train).sum() == 0, "Imputation did not work!"
 
     # Apply resampling only to training data
     if resampling_method in ["downsample", "upsample"]:
@@ -1006,7 +1008,6 @@ def get_ml_model(model: str, params: dict = None):
         "lda": LinearDiscriminantAnalysis,
         "knn": KNeighborsClassifier,
         "lr": LogisticRegression,
-        # "xgboost": GradientBoostingClassifier,
         "xgboost": xgb.XGBClassifier,
         "qda": QuadraticDiscriminantAnalysis,
         "svm": SVC,
