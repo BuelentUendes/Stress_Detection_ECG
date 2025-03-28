@@ -71,7 +71,7 @@ def validate_models(models_str: str) -> list[str]:
 
 
 def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strategy: str,
-                                     figures_path: str, comparison: str) -> None:
+                                     figures_path: str, comparison: str, resampling_method: str) -> None:
     """
     Creates a combined calibration plot for multiple models.
 
@@ -86,7 +86,7 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
 
     for model in models:
         # Construct path to calibration results
-        model_cal_path = os.path.join(figures_path, model, f'{bin_strategy}_{n_bins}_calibration_summary.csv')
+        model_cal_path = os.path.join(figures_path, model, f'{bin_strategy}_{n_bins}_calibration_summary_{resampling_method}.csv')
 
         try:
             # Load calibration data
@@ -122,7 +122,8 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
     plt.tight_layout()
 
     # Save the combined plot
-    save_path = os.path.join(figures_path, f'{comparison}_combined_calibration_curves_{bin_strategy}_{n_bins}.png')
+    save_path = os.path.join(figures_path,
+                             f'{comparison}_combined_calibration_curves_{bin_strategy}_{n_bins}_{resampling_method}.png')
     plt.savefig(save_path, dpi=500, bbox_inches='tight')
     plt.close()
 
@@ -498,7 +499,6 @@ def main(args):
         "rest",
         "any_physical_activity"
     ]) or (args.positive_class in [
-        "mental_stress",
         "low_physical_activity",
         "moderate_physical_activity",
         "rest",
@@ -567,6 +567,7 @@ def main(args):
             bin_strategy=args.bin_strategy,
             figures_path=figures_path,
             comparison=comparison,
+            resampling_method=args.resampling_method,
         )
 
 
@@ -594,6 +595,7 @@ if __name__ == "__main__":
     parser.add_argument("--bin_strategy", help="what binning strategy to use",
                         default="uniform", choices=("uniform", "quantile")
                         )
+    parser.add_argument("--resampling_method", default="smote")
 
     args = parser.parse_args()
     main(args)
