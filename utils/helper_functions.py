@@ -1095,6 +1095,46 @@ def get_idx_per_subcategory(y_data, label, positive_class=True, include_other_cl
     return idx_per_subcategory
 
 
+def evaluate_ml_model_f1_score(
+        ml_model: BaseEstimator,
+        data: tuple[np.ndarray, np.ndarray],
+        threshold: float
+):
+
+    # Get the predicted probabilities
+    predicted_proba = ml_model.predict_proba(data[0])[:, 1]
+    predicted_classes = np.where(predicted_proba >= threshold, 1.0, 0.0)
+
+    # Get the f1 score now
+    f1_score_at_threshold = np.round(
+        metrics.f1_score(data[1], predicted_classes), 4
+    )
+
+    return f1_score_at_threshold
+
+
+def find_best_threshold_f1_score(ml_model: BaseEstimator,
+                                 val_data: tuple[np.ndarray, np.ndarray],
+                                 min_threshold: float = 0.3,
+                                 max_threshold: float = 1.0,
+                                 step_size: float = 0.025
+                                 ):
+
+    thresholds_to_test = np.arange(min_threshold, max_threshold, step_size)
+
+    f1_performance_various_thresholds = {
+        threshold: evaluate_ml_model_f1_score(ml_model, val_data, threshold=threshold) for
+        threshold in thresholds_to_test
+    }
+
+    best_threshold_performance_pair = (min_threshold, 0.0)
+
+    for threshold, performance in f1_performance_various_thresholds.items():
+        if performance > best_threshold_performance_pair[1]:
+            best_threshold_performance_pair = (threshold, performance)
+
+    return best_threshold_performance_pair[0]
+
 
 def evaluate_classifier(ml_model: BaseEstimator,
                         train_data: tuple[np.ndarray, np.ndarray],
@@ -1130,6 +1170,23 @@ def evaluate_classifier(ml_model: BaseEstimator,
         'val_balanced_accuracy': round_result(metrics.balanced_accuracy_score(val_data[1], ml_model.predict(val_data[0]))) if val_data is not None else None,
         'test_balanced_accuracy': round_result(metrics.balanced_accuracy_score(test_data[1], ml_model.predict(test_data[0]))),
     }
+
+    # Find best threshold for F1 score:
+    best_val_threshold_f1_score = find_best_threshold_f1_score(
+        ml_model,
+        val_data,
+        min_threshold= 0.1,
+        max_threshold = 1.0,
+        step_size= 0.01
+    )
+
+    results["f1_score_threshold"] = best_val_threshold_f1_score
+    results["val_f1_score"] = evaluate_ml_model_f1_score(
+        ml_model, val_data, threshold=best_val_threshold_f1_score
+    )
+    results["test_f1_score"] = evaluate_ml_model_f1_score(
+        ml_model, test_data, threshold=best_val_threshold_f1_score
+    )
 
     # Binary classification
     if len(train_data[1].unique()) == 2:
@@ -1662,7 +1719,10 @@ class FeatureSelectionPipeline:
             json.dump(history_feature_selection, f, indent=4)
 
 
-def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,  bin_strategy: str,
+def plot_calibration_curve(y_test: np.array, predictions: np.array,
+                           n_bins: int,
+                           bin_strategy: str,
+                           resampling_method: str,
                            save_path: str):
     """
     Code adapted from: https://endtoenddatascience.com/chapter11-machine-learning-calibration
@@ -1671,6 +1731,7 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,
     :param predictions: predictions series
     :param n_bins: number of bins for the predictions
     :param bin_strategy: uniform - all bins have the same width; quantile - bins have the same number of observations
+    :param resampling_method: str - which resampling method is used to handle imbalanced data
     :save_path: save_path for the figure
     """
     try:
@@ -1698,7 +1759,7 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array, n_bins: int,
         ax.set_xlabel('Predicted Probability')
         ax.set_ylabel('True Probability in Each Bin')
         plt.legend()
-        plt.savefig(os.path.join(save_path, f'{bin_strategy}_{n_bins}_calibration_plot.png'), dpi=400, format="png")
+        plt.savefig(os.path.join(save_path, f'{resampling_method}_{bin_strategy}_{n_bins}_calibration_plot.png'), dpi=400, format="png")
         plt.clf()
 
         print(f"The ECE is {ece}. The brier score is {brier_score}")
