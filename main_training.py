@@ -609,7 +609,6 @@ def main(args):
                 feature_selection=args.use_feature_selection
             )
 
-        args.get_cohens_kappa = True
         if args.get_cohens_kappa:
             model_comparisons = args.model_comparisons.split(",")
             model_dict = {}
