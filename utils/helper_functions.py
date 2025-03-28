@@ -24,6 +24,7 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, QuantileTransformer
 from sklearn import metrics
+from sklearn.metrics import cohen_kappa_score
 from sklearn.svm import SVC
 from sklearn.base import BaseEstimator, clone
 from sklearn.utils import resample
@@ -1257,6 +1258,41 @@ def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame],
     return X_bootstrapped, y_bootstrapped
 
 
+def get_bootstrapped_cohens_kappa(
+        ml_model_1: BaseEstimator,
+        threshold_1: float,
+        ml_model_2: BaseEstimator,
+        threshold_2: float,
+        test_data: tuple[np.ndarray, np.ndarray],
+        bootstrap_samples: int,
+        bootstrap_method: str,
+):
+
+    X_test, y_test, label_test = test_data
+
+    # Initialize results dictionary
+    results = {
+        'cohen kappa': [],
+    }
+
+    for idx in range(bootstrap_samples):
+        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+        # Get predictions
+        y_proba_predictions_model_1 = ml_model_1.predict_proba(X_bootstrap)[:, 1]
+        y_pred_1 = np.where(y_proba_predictions_model_1 >= threshold_1, 1.0, 0.0)
+        y_proba_predictions_model_2 = ml_model_2.predict_proba(X_bootstrap)[:, 1]
+        y_pred_2 = np.where(y_proba_predictions_model_2 >= threshold_2, 1.0, 0.0)
+
+        results["cohen kappa"].append(
+            cohen_kappa_score(y_pred_1, y_pred_2)
+        )
+
+    # Calculate confidence intervals and means
+    final_results = get_confidence_interval_mean(results, bootstrap_method)
+
+    return final_results
+
+
 def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap, f1_threshold):
     # Get predictions
     y_pred_proba = model.predict_proba(X_bootstrap)[:, 1]
@@ -1338,7 +1374,6 @@ def bootstrap_test_performance(
     }
 
     if bootstrap_subcategories:
-
         idx_per_subcategory = get_idx_per_subcategory(y_test, label_test, positive_class=True, include_other_class=True)
 
         subcategory_results = {
