@@ -2,15 +2,20 @@
 
 import os
 import argparse
+import pickle
 from typing import Any
 import warnings
+
+from main_figures import load_json_results
+
 warnings.filterwarnings("ignore")
 
 import optuna
 import numpy as np
+import itertools
 from sklearn import metrics
 from sklearn.mixture import GaussianMixture
-from sklearn.base import clone
+from sklearn.base import clone, BaseEstimator
 from optuna.trial import Trial
 import json
 import shap
@@ -18,9 +23,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
-from utils.helper_functions import set_seed, ECGDataset, prepare_data, get_ml_model, \
+from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
     get_data_balance, evaluate_classifier, create_directory, FeatureSelectionPipeline, \
-    bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model, plot_feature_importance
+    bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model, plot_feature_importance,
+                                    get_bootstrapped_cohens_kappa)
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method, validate_feature_subset
 from utils.helper_xai import create_shap_dependence_plots, create_shap_beeswarm_plot, create_shap_decision_plot
@@ -102,11 +108,13 @@ def objective(trial: Trial,
 
     elif model_type.lower() == "dt":
         params = {
-            'max_depth': trial.suggest_int('max_depth', 3, 30),
-            'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
-            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
-            'criterion': trial.suggest_categorical('criterion', ['gini', 'entropy']),
-            'class_weight': trial.suggest_categorical('class_weight', ['balanced', None])
+            'max_depth': trial.suggest_int('max_depth', 2, 7),
+            'min_samples_split': trial.suggest_int('min_samples_split', 15, 20),
+            'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 5),
+            'criterion': trial.suggest_categorical('criterion', ['entropy']),
+            # Add max_features to consider fewer features at each split
+            'max_features': trial.suggest_float('max_features', 0.6, 0.8),
+            'class_weight': trial.suggest_categorical('class_weight', [None])
         }
     elif model_type.lower() == "adaboost":
         params = {
@@ -171,6 +179,14 @@ def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
         return None
 
 
+def load_best_model(file_path: str, file_name:str) -> BaseEstimator:
+    try:
+        with open(os.path.join(file_path, f"{file_name}.pkl"), "rb") as file:
+            return pickle.load(file)
+    except FileNotFoundError:
+        return None
+
+
 def load_top_features(file_path: str, file_name:str, top_k: int = 5,  random: bool=False,
                       random_k: int = 20) -> list[str]:
     try:
@@ -212,6 +228,7 @@ def get_save_name(study_name: str,
                   bootstrap: bool,
                   subcategories: bool,
                   random_subset: bool = False,
+                  use_top_features: bool = False,
                   ) -> str:
     """Generate the save filename based on the configuration.
     
@@ -233,8 +250,13 @@ def get_save_name(study_name: str,
     suffix = "_feature_selection" if use_feature_selection else ""
     if use_feature_subset and not random_subset:
         suffix_2 = f"_subset_features_{str(top_k_features)}" if use_feature_subset else ""
+
+    elif use_top_features:
+        suffix_2 = f"_subset_features_{str(top_k_features)}"
+
     elif use_feature_subset and random_subset:
         suffix_2 = "_subset_features_random"
+
     else:
         suffix_2 = ""
 
@@ -346,6 +368,7 @@ def main(args):
     results_path_history = os.path.join(results_path_root, "history")
     results_path_feature_selection = os.path.join(results_path_root, "feature_selection")
     results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
+    results_path_model_weights = os.path.join(results_path_root, "best_model_weights")
 
     # Figures path
     figures_path_hist = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison)
@@ -357,6 +380,8 @@ def main(args):
     create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
     create_directory(figures_path_root)
+    create_directory(results_path_model_weights)
+
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
 
     if args.negative_class in ["baseline"]:
@@ -458,7 +483,7 @@ def main(args):
     best_model.fit(train_data[0], train_data[1])
 
     # Evaluate final model
-    evaluate_classifier(
+    evaluation_results = evaluate_classifier(
         best_model, train_data, val_data, test_data,
         save_path=results_path_best_performance,
         save_name=get_save_name(
@@ -468,11 +493,21 @@ def main(args):
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
             top_k_features=args.top_k_features,
+            use_top_features=args.use_top_features,
             bootstrap=False,
             subcategories=False,
             random_subset=args.use_random_subset_features,
         ),
         verbose=args.verbose)
+
+    # Save model weights and threshold for classification so I can later retrieve it for cohen's kappa calculation
+    # Save the model weights so we can later load them for cohen's kappa
+    with open(os.path.join(results_path_model_weights, f"best_model_weights_{args.resampling_method}.pkl"), "wb") as f:
+        pickle.dump(best_model, f)
+
+    with open(os.path.join(results_path_model_weights, f"classification_threshold_{args.resampling_method}.json"), "w") as f:
+        classification_threshold = {"classification_threshold": evaluation_results["f1_score_threshold"]}
+        json.dump(classification_threshold, f)
 
     if args.bootstrap_test_results:
         set_seed(args.seed)
@@ -481,6 +516,7 @@ def main(args):
             test_data,
             args.bootstrap_samples,
             args.bootstrap_method,
+            evaluation_results["f1_score_threshold"],
             args.bootstrap_subcategories
         )
         if args.verbose:
@@ -493,6 +529,7 @@ def main(args):
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
             top_k_features=args.top_k_features,
+            use_top_features=args.use_top_features,
             bootstrap=True,
             subcategories=False,
             random_subset=args.use_random_subset_features,
@@ -509,6 +546,7 @@ def main(args):
                 use_feature_selection=args.use_feature_selection,
                 use_feature_subset=args.use_feature_subset,
                 top_k_features=args.top_k_features,
+                use_top_features=args.use_top_features,
                 bootstrap=True,
                 subcategories=True,
                 random_subset=args.use_random_subset_features,
@@ -521,7 +559,9 @@ def main(args):
     if args.add_calibration_plots and not args.do_within_comparison and not args.use_default_values:
         # Get class 1 probability
         y_pred = best_model.predict_proba(test_data[0])[:, 1]
-        plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy, figures_path_root)
+        plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy,
+                               resampling_method=args.resampling_method,
+                               save_path= figures_path_root)
 
     # Feature coefficients for LR model
     if args.model_type == "lr":
@@ -569,12 +609,41 @@ def main(args):
                 feature_selection=args.use_feature_selection
             )
 
+        args.get_cohens_kappa = True
+        if args.get_cohens_kappa:
+            model_comparisons = args.model_comparisons.split(",")
+            model_dict = {}
+            root_path= os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison)
+            file_name = f"best_model_weights_{args.resampling_method}"
+            for model in model_comparisons:
+                file_path = os.path.join(root_path, model, "best_model_weights")
+                with open(os.path.join(file_path, f"classification_threshold_{args.resampling_method}.json"), "r") as f:
+                    classification_threshold = json.load(f)["classification_threshold"]
+                model_dict[model] = (load_best_model(file_path, file_name), classification_threshold)
+
+            final_cohen_results = {}
+            for (ml_model_1, model_threshold_pair_1), (ml_model_2, model_threshold_pair_2) in itertools.combinations(model_dict.items(), 2):
+                bootstrapped_cohen = get_bootstrapped_cohens_kappa(
+                    model_threshold_pair_1[0], model_threshold_pair_1[1],
+                    model_threshold_pair_2[0], model_threshold_pair_2[1],
+                    test_data, args.bootstrap_samples, args.bootstrap_method
+                )
+                final_cohen_results[f"{ml_model_1}_{ml_model_2}"] = bootstrapped_cohen
+
+            print(final_cohen_results)
+            # Good paper for comparison of cohens kappa:
+            # https: // pmc.ncbi.nlm.nih.gov / articles / PMC3900052 /  # t3-biochem-med-22-3-276-4
+
+            # Save cohen kappa results:
+            with open(os.path.join(root_path, f"cohen_kappa_{args.resampling_method}.json"), "w") as f:
+                json.dump(final_cohen_results, f, indent=4)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1",
-                        default="any_physical_activity",
+                        default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
                         default="baseline",
@@ -594,7 +663,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
-                        type=validate_ml_model, default="lr")
+                        type=validate_ml_model, default="xgboost")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
@@ -652,6 +721,10 @@ if __name__ == "__main__":
                         )
     parser.add_argument("--get_model_explanations", action="store_true",
                         help="If set, we get model explanations using SHAP")
+    parser.add_argument("--get_cohens_kappa", action="store_true",
+                        help="If set, we calculate the cohens kappa to get the agreement.")
+    parser.add_argument("--model_comparisons", default="lr,rf,xgboost",
+                        help="For which models we want to get the cohens kappa scores.")
     args = parser.parse_args()
 
     args.verbose = True
@@ -695,3 +768,7 @@ if __name__ == "__main__":
 
     #In-depth gaussian mixture model:
     # https://jakevdp.github.io/PythonDataScienceHandbook/05.12-gaussian-mixtures.html
+
+    # To get the reduction of features:
+    # Use this command:
+    # python3 main_training.py --model_type xgboost --use_feature_selection --min_features 20 --max_features 20 --top_k_features 20 --do_hyperparameter_tuning --n_trials 25 --use_top_features
