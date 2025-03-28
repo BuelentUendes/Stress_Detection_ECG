@@ -1261,7 +1261,6 @@ def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap, f1_thre
     # Get predictions
     y_pred_proba = model.predict_proba(X_bootstrap)[:, 1]
     y_pred = model.predict(X_bootstrap)
-    y_pred_class_f1_score = np.where(y_pred_proba >= f1_threshold, 1.0, 0.0)
 
     # Calculate metrics
     roc_auc = metrics.roc_auc_score(y_bootstrap, y_pred_proba)
@@ -1325,6 +1324,7 @@ def bootstrap_test_performance(
                 'roc_auc': {'mean': float, 'ci_lower': float, 'ci_upper': float},
                 'pr_auc': {'mean': float, 'ci_lower': float, 'ci_upper': float},
                 'balanced_accuracy': {'mean': float, 'ci_lower': float, 'ci_upper': float}
+                'f1_score': {"mean": float, "ci_lower" float, "ci_upper": float}
             }
     """
     X_test, y_test, label_test = test_data
