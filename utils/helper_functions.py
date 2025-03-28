@@ -1257,17 +1257,21 @@ def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame],
     return X_bootstrapped, y_bootstrapped
 
 
-def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap):
+def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap, f1_threshold):
     # Get predictions
     y_pred_proba = model.predict_proba(X_bootstrap)[:, 1]
     y_pred = model.predict(X_bootstrap)
+    y_pred_class_f1_score = np.where(y_pred_proba >= f1_threshold, 1.0, 0.0)
 
     # Calculate metrics
     roc_auc = metrics.roc_auc_score(y_bootstrap, y_pred_proba)
     pr_auc = metrics.average_precision_score(y_bootstrap, y_pred_proba)
     balanced_accuracy = metrics.balanced_accuracy_score(y_bootstrap, y_pred)
+    f1_score = evaluate_ml_model_f1_score(
+        model, (X_bootstrap, y_bootstrap), threshold=f1_threshold,
+)
 
-    return roc_auc, pr_auc, balanced_accuracy
+    return roc_auc, pr_auc, balanced_accuracy, f1_score
 
 
 def get_confidence_interval_mean(results: dict, bootstrap_method: str) -> dict:
@@ -1291,12 +1295,14 @@ def get_confidence_interval_mean(results: dict, bootstrap_method: str) -> dict:
     return final_results
 
 
-def bootstrap_test_performance(model: BaseEstimator,
-                             test_data: tuple[np.ndarray, np.ndarray],
-                             bootstrap_samples: int,
-                             bootstrap_method: str,
-                             bootstrap_subcategories: bool = True) -> tuple[dict[str, dict[str, float]], 
-                                                                         dict[str, dict[str, dict[str, float]]] | None]:
+def bootstrap_test_performance(
+        model: BaseEstimator,
+        test_data: tuple[np.ndarray, np.ndarray],
+        bootstrap_samples: int,
+        bootstrap_method: str,
+        f1_score_threshold: float,
+        bootstrap_subcategories: bool = True
+) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, dict[str, float]]] | None]:
     """
     Performs bootstrap resampling to estimate model performance metrics and their confidence intervals.
     
@@ -1311,6 +1317,7 @@ def bootstrap_test_performance(model: BaseEstimator,
             - y_test: array-like of shape (n_samples,) with true labels
         bootstrap_samples: int, number of bootstrap iterations (default: 1000)
         bootstrap_method: str, which method to use for bootstrap samples.
+        f1_score_threshold: float: Threshold to determine the positive class
     
     Returns:
         dict: Dictionary containing performance metrics and their confidence intervals:
@@ -1326,7 +1333,8 @@ def bootstrap_test_performance(model: BaseEstimator,
     results = {
         'roc_auc': [],
         'pr_auc': [],
-        'balanced_accuracy': []
+        'balanced_accuracy': [],
+        'f1_score': [],
     }
 
     if bootstrap_subcategories:
@@ -1337,7 +1345,8 @@ def bootstrap_test_performance(model: BaseEstimator,
             category: {
                 'roc_auc': [],
                 'pr_auc': [],
-                'balanced_accuracy': []
+                'balanced_accuracy': [],
+                'f1_score': [],
             }
             for category in idx_per_subcategory.keys()
         }
@@ -1345,11 +1354,13 @@ def bootstrap_test_performance(model: BaseEstimator,
     for idx in range(bootstrap_samples):
         X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
         # Get predictions
-        roc_auc, pr_auc, balanced_accuracy_score = get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap)
+        roc_auc, pr_auc, balanced_accuracy_score, f1_score = get_performance_metric_bootstrapped(
+            model, X_bootstrap, y_bootstrap, f1_score_threshold)
 
         results['roc_auc'].append(roc_auc)
         results['pr_auc'].append(pr_auc)
         results['balanced_accuracy'].append(balanced_accuracy_score)
+        results['f1_score'].append(f1_score)
 
         if bootstrap_subcategories:
             for category, idx_category in idx_per_subcategory.items():
@@ -1361,12 +1372,14 @@ def bootstrap_test_performance(model: BaseEstimator,
                 X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory, seed=idx)
                 
                 # Get predictions
-                roc_auc, pr_auc, balanced_accuracy_score = get_performance_metric_bootstrapped(model, X_bootstrap,
-                                                                                               y_bootstrap)
+                roc_auc, pr_auc, balanced_accuracy_score, f1_score = get_performance_metric_bootstrapped(
+                    model, X_bootstrap, y_bootstrap, f1_score_threshold)
 
                 subcategory_results[category]['roc_auc'].append(roc_auc)
                 subcategory_results[category]['pr_auc'].append(pr_auc)
                 subcategory_results[category]['balanced_accuracy'].append(balanced_accuracy_score)
+                subcategory_results[category]['f1_score'].append(f1_score)
+
 
     # Calculate confidence intervals and means
     final_results = get_confidence_interval_mean(results, bootstrap_method)
