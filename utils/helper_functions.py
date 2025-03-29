@@ -5,7 +5,7 @@ import random
 import json
 import yaml
 from typing import Optional, Tuple, Union, Any
-
+from scipy import stats
 import torch
 from torchmetrics.functional.classification import binary_calibration_error
 from numpy import ndarray
@@ -834,6 +834,280 @@ def resample_data(data: pd.DataFrame,
     return balanced_data
 
 
+def analyze_feature_distributions(df: pd.DataFrame, alpha: float = 0.05):
+    """
+    Analyzes each feature, tests for normality, applies multiple transformations,
+    and provides visualization of before/after transformations.
+
+    Args:
+        df: DataFrame with features to analyze
+        alpha: Significance level for normality test
+    """
+    import pandas as pd
+    import numpy as np
+    from scipy import stats
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from scipy.stats import boxcox
+
+    # Store results for each feature
+    feature_stats = {}
+    transformed_df = df.copy()
+
+    # Analyze each feature
+    for column in df.columns:
+        # Skip columns with all missing values
+        if df[column].isnull().all():
+            continue
+
+        # Get non-null values for analysis
+        data = df[column].dropna()
+
+        # Calculate basic statistics
+        stats_summary = {
+            'mean': data.mean(),
+            'median': data.median(),
+            'std': data.std(),
+            'min': data.min(),
+            'max': data.max(),
+            'skewness': stats.skew(data),
+            'kurtosis': stats.kurtosis(data),
+            'missing_pct': df[column].isnull().mean() * 100
+        }
+
+        # Test for normality
+        # Use Shapiro-Wilk for smaller samples (works best for n<50)
+        # Use D'Agostino-Pearson for larger datasets
+        if len(data) < 50:
+            if len(data) >= 3:  # Shapiro-Wilk requires at least 3 samples
+                normality_stat, p_value = stats.shapiro(data)
+                stats_summary['normality_test'] = 'Shapiro-Wilk'
+            else:
+                p_value = None
+                stats_summary['normality_test'] = 'Too few samples'
+        else:
+            sample = data.sample(n=5000) if len(data) > 5000 else data  # Limit sample size for performance
+            normality_stat, p_value = stats.normaltest(sample)  # D'Agostino-Pearson test
+            stats_summary['normality_test'] = 'D\'Agostino-Pearson'
+
+        stats_summary['p_value'] = p_value
+        stats_summary['is_normal'] = p_value > alpha if p_value is not None else None
+
+        # Always try log transform if data is positive
+        log_transform_possible = data.min() > 0
+        if log_transform_possible:
+            # Apply log transform
+            transformed_df[column + '_log'] = np.log1p(df[column])  # log(1+x) to handle zeros
+            log_data = transformed_df[column + '_log'].dropna()
+
+            # Check normality after log transformation
+            if len(log_data) >= 3:
+                if len(log_data) < 50:
+                    _, p_log = stats.shapiro(log_data)
+                else:
+                    log_sample = log_data.sample(n=5000) if len(log_data) > 5000 else log_data
+                    _, p_log = stats.normaltest(log_sample)
+                stats_summary['p_value_log'] = p_log
+                stats_summary['is_normal_log'] = p_log > alpha
+
+            # Try Box-Cox transformation if appropriate
+            try:
+                transformed_data, lambda_param = boxcox(data)
+                transformed_df[column + '_boxcox'] = transformed_data
+                stats_summary['lambda'] = lambda_param
+
+                # Check normality after Box-Cox transformation
+                if len(transformed_data) >= 3:
+                    if len(transformed_data) < 50:
+                        _, p_boxcox = stats.shapiro(transformed_data)
+                    else:
+                        transformed_sample = transformed_data[:5000] if len(
+                            transformed_data) > 5000 else transformed_data
+                        _, p_boxcox = stats.normaltest(transformed_sample)
+                    stats_summary['p_value_boxcox'] = p_boxcox
+                    stats_summary['is_normal_boxcox'] = p_boxcox > alpha
+            except (ValueError, np.linalg.LinAlgError):
+                # If Box-Cox fails, note it in the stats
+                stats_summary['boxcox_failed'] = True
+
+        # Determine best transformation
+        if log_transform_possible:
+            if stats_summary.get('is_normal', False):
+                stats_summary['best_transform'] = 'none'
+            elif stats_summary.get('is_normal_log', False) and not stats_summary.get('is_normal_boxcox', False):
+                stats_summary['best_transform'] = 'log1p'
+            elif stats_summary.get('is_normal_boxcox', False) and not stats_summary.get('is_normal_log', False):
+                stats_summary['best_transform'] = 'boxcox'
+            elif stats_summary.get('is_normal_boxcox', False) and stats_summary.get('is_normal_log', False):
+                # If both work, choose the one with higher p-value
+                if stats_summary.get('p_value_boxcox', 0) > stats_summary.get('p_value_log', 0):
+                    stats_summary['best_transform'] = 'boxcox'
+                else:
+                    stats_summary['best_transform'] = 'log1p'
+            else:
+                # Neither achieved normality
+                stats_summary['best_transform'] = 'none_effective'
+        else:
+            stats_summary['best_transform'] = 'none'
+            stats_summary['transform_note'] = 'Data contains zero or negative values'
+
+        feature_stats[column] = stats_summary
+
+    # Function to visualize each feature
+    def view_feature(feature_index=0, show_plot=False, save_path=None, save_feature_plots=False):
+        features = list(feature_stats.keys())
+        if feature_index >= len(features) or feature_index < 0:
+            print(f"Index out of range. Please select an index between 0 and {len(features) - 1}")
+            return
+
+        feature = features[feature_index]
+        stats_dict = feature_stats[feature]
+
+        # Organize the figure in a 3x3 grid: histograms in left column, Q-Q plots in middle, stats on right
+        fig = plt.figure(figsize=(15, 10))
+        gs = fig.add_gridspec(3, 3, width_ratios=[1, 1, 0.8])
+
+        # Original data row
+        ax_hist_orig = fig.add_subplot(gs[0, 0])  # Original histogram
+        ax_qq_orig = fig.add_subplot(gs[0, 1])  # Original Q-Q plot
+
+        # Log transform row
+        ax_hist_log = fig.add_subplot(gs[1, 0])  # Log histogram
+        ax_qq_log = fig.add_subplot(gs[1, 1])  # Log Q-Q plot
+
+        # Box-Cox row
+        ax_hist_boxcox = fig.add_subplot(gs[2, 0])  # Box-Cox histogram
+        ax_qq_boxcox = fig.add_subplot(gs[2, 1])  # Box-Cox Q-Q plot
+
+        # Stats panel on right (spans all rows)
+        ax_stats = fig.add_subplot(gs[:, 2])
+
+        # Set figure title
+        fig.suptitle(f"Feature Analysis: {feature} (Index: {feature_index}/{len(features) - 1})", fontsize=16)
+
+        # Original distribution histogram and Q-Q plot
+        sns.histplot(df[feature].dropna(), kde=True, ax=ax_hist_orig)
+        ax_hist_orig.set_title(f"Original Distribution\nSkewness: {stats_dict['skewness']:.2f}")
+
+        stats.probplot(df[feature].dropna(), plot=ax_qq_orig)
+        ax_qq_orig.set_title(f"Q-Q Plot (Original)\np-value: {stats_dict.get('p_value', 'N/A'):.4e}")
+
+        # Log transformation plots (if possible)
+        log_transform_possible = stats_dict.get('p_value_log') is not None
+        if log_transform_possible:
+            sns.histplot(transformed_df[feature + '_log'].dropna(), kde=True, ax=ax_hist_log)
+            ax_hist_log.set_title(
+                f"Log Transformed (log1p)\nSkewness: {stats.skew(transformed_df[feature + '_log'].dropna()):.2f}")
+
+            stats.probplot(transformed_df[feature + '_log'].dropna(), plot=ax_qq_log)
+            ax_qq_log.set_title(f"Q-Q Plot (Log)\np-value: {stats_dict.get('p_value_log', 'N/A'):.4e}")
+        else:
+            ax_hist_log.set_visible(False)
+            ax_qq_log.set_visible(False)
+
+        # Box-Cox transformation plots (if possible)
+        boxcox_transform_possible = 'p_value_boxcox' in stats_dict and not stats_dict.get('boxcox_failed', False)
+        if boxcox_transform_possible:
+            sns.histplot(transformed_df[feature + '_boxcox'].dropna(), kde=True, ax=ax_hist_boxcox)
+            ax_hist_boxcox.set_title(f"Box-Cox Transformed (λ={stats_dict.get('lambda', 'N/A'):.4f})\n" +
+                                     f"Skewness: {stats.skew(transformed_df[feature + '_boxcox'].dropna()):.2f}")
+
+            stats.probplot(transformed_df[feature + '_boxcox'].dropna(), plot=ax_qq_boxcox)
+            ax_qq_boxcox.set_title(f"Q-Q Plot (Box-Cox)\np-value: {stats_dict.get('p_value_boxcox', 'N/A'):.4e}")
+        else:
+            ax_hist_boxcox.set_visible(False)
+            ax_qq_boxcox.set_visible(False)
+
+        # Clear the stats axis and set no frame
+        ax_stats.axis('off')
+
+        # Create the stats text
+        stats_text = [
+            f"Feature: {feature}",
+            f"Mean: {stats_dict['mean']:.4f}",
+            f"Median: {stats_dict['median']:.4f}",
+            f"Min: {stats_dict['min']:.4f}",
+            f"Max: {stats_dict['max']:.4f}",
+            f"Std Dev: {stats_dict['std']:.4f}",
+            f"Skewness: {stats_dict['skewness']:.4f}",
+            f"Kurtosis: {stats_dict['kurtosis']:.4f}",
+            f"Missing: {stats_dict['missing_pct']:.1f}%",
+            f"\nNormality Tests:",
+            f"Test type: {stats_dict['normality_test']}",
+            f"Original p-value: {stats_dict.get('p_value', 'N/A'):.4e}",
+            f"Original is normal: {'Yes' if stats_dict.get('is_normal') else 'No'}"
+        ]
+
+        if log_transform_possible:
+            stats_text.extend([
+                f"\nLog Transform:",
+                f"Log p-value: {stats_dict.get('p_value_log', 'N/A'):.4e}",
+                f"Log is normal: {'Yes' if stats_dict.get('is_normal_log', False) else 'No'}"
+            ])
+
+        if boxcox_transform_possible:
+            stats_text.extend([
+                f"\nBox-Cox Transform:",
+                f"Lambda: {stats_dict.get('lambda', 'N/A'):.4f}",
+                f"Box-Cox p-value: {stats_dict.get('p_value_boxcox', 'N/A'):.4e}",
+                f"Box-Cox is normal: {'Yes' if stats_dict.get('is_normal_boxcox', False) else 'No'}"
+            ])
+
+        # Add best transformation recommendation
+        stats_text.extend([
+            f"\nRecommendation:",
+            f"Best transform: {stats_dict.get('best_transform', 'none').replace('_', ' ').title()}"
+        ])
+
+        # Add notes for cases where neither transform worked
+        if stats_dict.get('best_transform') == 'none_effective':
+            stats_text.extend([
+                f"\nNote: Neither transformation achieved normality.",
+                f"Consider:",
+                f"- Square root transformation",
+                f"- Yeo-Johnson transformation",
+                f"- Quantile normalization",
+                f"- Using non-parametric methods"
+            ])
+
+        # Add notes if transforms couldn't be applied
+        if not log_transform_possible or not boxcox_transform_possible:
+            stats_text.append(f"\nNote: Some transformations couldn't be applied.")
+            if 'transform_note' in stats_dict:
+                stats_text.append(stats_dict['transform_note'])
+
+        # Display the stats text in a nicely formatted box
+        ax_stats.text(0.05, 0.95, '\n'.join(stats_text),
+                      transform=ax_stats.transAxes,
+                      fontsize=11,
+                      verticalalignment='top',
+                      bbox=dict(boxstyle='round,pad=1', facecolor='orange', alpha=0.2))
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust to make room for the title
+
+        # Save figure:
+        if save_feature_plots:
+            plt.savefig(os.path.join(save_path, f'feature_plot_{feature}.png'),
+                        dpi=400, format="png")
+        if show_plot:
+            plt.show()
+
+        return fig
+
+    # Function to run all features and display them automatically
+    def run_all_features():
+        features = list(feature_stats.keys())
+        print(f"Analyzing {len(features)} features...")
+
+        for i in range(len(features)):
+            fig = view_feature(i)
+            plt.close(fig)  # Clean up after displaying
+
+        print("Analysis complete!")
+
+    return view_feature, run_all_features, transformed_df, feature_stats
+
+
 def prepare_data(train_data: pd.DataFrame,
                  val_data: pd.DataFrame,
                  test_data: Optional[pd.DataFrame] = None,
@@ -843,7 +1117,10 @@ def prepare_data(train_data: pd.DataFrame,
                  resampling_method: Optional[str] = None,
                  scaler: Optional[str] = None,
                  use_quantile_transformer: Optional[bool] = False,
-                 use_subset: Optional[list[bool]] = None) -> tuple:
+                 use_subset: Optional[list[bool]] = None,
+                 save_path: Optional[str] = None,
+                 save_feature_plots: bool = False,
+                 ) -> tuple:
 
     """
     Prepares the data for scikit-learn models. Can handle both 2-way (train/val) and 3-way (train/val/test) splits.
@@ -859,6 +1136,8 @@ def prepare_data(train_data: pd.DataFrame,
         use_quantile_transformer: If set, we transform the features to normal distribution first
         resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
         use_subset: bool, list of bool to indicate which features should be included or not
+        save_path: str. Save path to plot the feature plots and save them so we can see what is going on
+        save_feature_plots: bool. Save feature plots which are then saved in save path
 
     Returns:
         If test_data is provided:
@@ -918,6 +1197,16 @@ def prepare_data(train_data: pd.DataFrame,
             x_test = x_test.iloc[:, use_subset]
 
     feature_names = list(x_train.columns.values)
+
+    # We need to test here each feature if it is normally distributed (pd.DataFrame)
+    # If positive values only -> maybe log transform
+    # Else min-max scaling
+    viewer, run_all, transformed_df, stats = analyze_feature_distributions(x_test)
+
+    if save_feature_plots:
+        for feature_idx in range(len(feature_names)):
+            print(f"We are plotting and saving feature plot {feature_idx}/{len(feature_names)}")
+            viewer(feature_idx, save_path=save_path, save_feature_plots=save_feature_plots)  # View the first feature
 
     # Apply scaling after resampling if requested
     if scaler is not None:
@@ -1812,7 +2101,7 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array,
 
         print(f"The ECE is {ece}. The brier score is {brier_score}")
         calibration_df.to_csv(os.path.join(save_path,
-                                           f'{bin_strategy}_{n_bins}_calibration_summary.csv'), index=False)
+                                           f'{bin_strategy}_{n_bins}_calibration_summary_{resampling_method}.csv'), index=False)
     except Exception as e:
         print(e)
 

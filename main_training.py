@@ -6,8 +6,6 @@ import pickle
 from typing import Any
 import warnings
 
-from main_figures import load_json_results
-
 warnings.filterwarnings("ignore")
 
 import optuna
@@ -20,7 +18,6 @@ from optuna.trial import Trial
 import json
 import shap
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
 from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
@@ -372,6 +369,7 @@ def main(args):
 
     # Figures path
     figures_path_hist = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison)
+    figures_path_feature_plots = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), "feature_plots")
     figures_path_root = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison,
                                      args.model_type.lower())
 
@@ -380,6 +378,7 @@ def main(args):
     create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
     create_directory(figures_path_root)
+    create_directory(figures_path_feature_plots)
     create_directory(results_path_model_weights)
 
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
@@ -459,6 +458,8 @@ def main(args):
         scaler=args.standard_scaler,
         use_quantile_transformer = args.use_quantile_transformer,
         use_subset=selected_features if args.use_feature_selection else None,
+        save_path=figures_path_feature_plots,
+        save_feature_plots=args.save_feature_plots,
     )
 
     # Setup for hyperparameter optimization
@@ -724,6 +725,9 @@ if __name__ == "__main__":
                         help="If set, we calculate the cohens kappa to get the agreement.")
     parser.add_argument("--model_comparisons", default="lr,rf,xgboost",
                         help="For which models we want to get the cohens kappa scores.")
+    parser.add_argument("--save_feature_plots", action="store_true",
+                        help="If we want to show the distribution of the feature plots. "
+                             "If set, we will save the feature plots. This will take longer though!")
     args = parser.parse_args()
 
     args.verbose = True
@@ -734,6 +738,7 @@ if __name__ == "__main__":
     # args.use_top_features = True
     args.do_hyperparameter_tuning = True
     args.get_model_explanations = True
+    args.save_feature_plots = True
     # Set seed for reproducibility
     set_seed(args.seed)
 
