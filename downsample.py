@@ -1,4 +1,5 @@
 import os
+import warnings
 
 from typing import List
 import argparse
@@ -92,6 +93,21 @@ def main(args: argparse.Namespace) -> None:
     Args:
         args: Command line arguments containing desired_sampling_rate
     """
+
+    # Important: As FFT uses a factor of 2, we need to issue a warning!"
+    # we assume sampling rate of 1000
+    if args.downsampling_method == "FFT":
+        if args.original_sampling_rate % args.desired_sampling_rate != 0:
+            ratio = np.round(args.original_sampling_rate/args.desired_sampling_rate)
+            true_sampling_rate = args.original_sampling_rate / ratio
+
+            warnings.warn("The downsampled frequency will have a different rate than the desired.\n"
+                          f"The downsampled frequency will have {true_sampling_rate}"
+                          "\nUse either 'interpolation' or choose a different desired sampling rate."
+                          "Hence, the desired sampling rate be will be adjusted!")
+
+            args.desired_sampling_rate = true_sampling_rate
+
     if args.data_chunk != -1:
         edf_files = find_all_edf_files(os.path.join(RAW_DATA_PATH, "1000", f"part_{str(args.data_chunk)}"))
     else:
@@ -119,7 +135,7 @@ if __name__ == "__main__":
         "--desired_sampling_rate",
         type=int,
         help="Desired sampling rate for downsampling in Hz.",
-        default=32
+        default=64
     )
 
     parser.add_argument(
@@ -137,7 +153,16 @@ if __name__ == "__main__":
         help="Downsampling method to use in neurokit. Important FFT use can result in slightly deviating results due to padding."
              "Interpolation seemed to have worked well and results in the precise downsample result."
              "However FFT is the most accurate (if sample is periodic)."
+             "For instance, if I do 128, it rounds to 125 (as it is a factor of 2)."
     )
+
+    parser.add_argument(
+        "--original_sampling_rate",
+        type=int,
+        default=1000,
+        help="Original sampling rate for the original signal. Assumed to be 1_000 Hz."
+    )
+
     args = parser.parse_args()
     main(args)
 
