@@ -39,7 +39,7 @@ def downsample_ecg_file(
     input_path: str,
     output_path: str,
     desired_sampling_rate: int,
-    method: str = "FFT",
+    method: str = "interpolation",
 ) -> None:
     """
     Downsample an ECG signal from an EDF file and save it.
@@ -48,7 +48,10 @@ def downsample_ecg_file(
         input_path: Path to input EDF file
         output_path: Path where downsampled EDF file should be saved
         desired_sampling_rate: Target sampling rate in Hz
-        method: downsampling method, default: FFT, could also be 'interpolated'
+        method: downsampling method, default: FFT, could also be 'interpolated'.
+        Important, downsampling method with FFT does not really then get 64Hz, but effectively samples it to 62.5
+
+
         
     Notes:
         - Assumes ECG signal is the first channel in the EDF file
@@ -102,7 +105,7 @@ def main(args: argparse.Namespace) -> None:
 
     for edf_file in tqdm(edf_files, desc=f"Processing EDF files. Target frequency {args.desired_sampling_rate}"):
         save_path = os.path.join(output_path, os.path.basename(edf_file))
-        downsample_ecg_file(edf_file, save_path, args.desired_sampling_rate)
+        downsample_ecg_file(edf_file, save_path, args.desired_sampling_rate, args.downsampling_method)
 
 
 if __name__ == "__main__":
@@ -116,7 +119,7 @@ if __name__ == "__main__":
         "--desired_sampling_rate",
         type=int,
         help="Desired sampling rate for downsampling in Hz.",
-        default=256
+        default=32
     )
 
     parser.add_argument(
@@ -127,6 +130,14 @@ if __name__ == "__main__":
              "Important: -1 will most likely lead to memory issues."
     )
 
+    parser.add_argument(
+        "--downsampling_method",
+        type=str,
+        default="FFT",
+        help="Downsampling method to use in neurokit. Important FFT use can result in slightly deviating results due to padding."
+             "Interpolation seemed to have worked well and results in the precise downsample result."
+             "However FFT is the most accurate (if sample is periodic)."
+    )
     args = parser.parse_args()
     main(args)
 
