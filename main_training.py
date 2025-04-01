@@ -373,6 +373,19 @@ def main(args):
                                                           "bootstrap_test")
         results_path_model_weights = os.path.join(results_path_root, "leave_one_out", args.leave_out_stressor_name,
                                                   "best_model_weights")
+
+    elif args.balance_positive_sublabels:
+        results_path_best_performance = os.path.join(results_path_root, "subsample", args.balance_sublabels_method,
+                                                     "best_performance")
+        results_path_history = os.path.join(results_path_root, "subsample", args.balance_sublabels_method,
+                                            "history")
+        results_path_feature_selection = os.path.join(results_path_root, "subsample", args.balance_sublabels_method,
+                                                      "feature_selection")
+        results_path_bootstrap_performance = os.path.join(results_path_root, "subsample", args.balance_sublabels_method,
+                                                          "bootstrap_test")
+        results_path_model_weights = os.path.join(results_path_root, "subsample", args.balance_sublabels_method,
+                                                  "best_model_weights")
+
     else:
         results_path_best_performance = os.path.join(results_path_root, "best_performance")
         results_path_history = os.path.join(results_path_root, "history")
@@ -418,6 +431,8 @@ def main(args):
             positive_class=args.positive_class,
             negative_class=args.negative_class,
             resampling_method=args.resampling_method,
+            balance_positive_sublabels=args.balance_positive_sublabels,
+            balance_sublabels_method=args.balance_sublabels_method,
             scaler=args.standard_scaler,
             use_quantile_transformer=args.use_quantile_transformer,
         )
@@ -472,6 +487,8 @@ def main(args):
         positive_class=args.positive_class,
         negative_class=args.negative_class,
         resampling_method=args.resampling_method,
+        balance_positive_sublabels=args.balance_positive_sublabels,
+        balance_sublabels_method=args.balance_sublabels_method,
         scaler=args.standard_scaler,
         use_quantile_transformer = args.use_quantile_transformer,
         use_subset=selected_features if args.use_feature_selection else None,
@@ -751,6 +768,11 @@ if __name__ == "__main__":
                         help="We will train and validate without a stressor")
     parser.add_argument("--leave_out_stressor_name", help="Which stressor to leave out",
                         choices=("ta", "pasat", "raven", "ssst","none"), default=None, type=str)
+    parser.add_argument("--balance_positive_sublabels", action="store_true",
+                        help="If we want to have equal proportions in the training set of positive label.")
+    parser.add_argument("--balance_sublabels_method", choices=("downsample", "upsample"),
+                        help="What method to use for the sublabel balancing.", type=str,
+                        default="downsample")
 
     args = parser.parse_args()
 
@@ -764,6 +786,7 @@ if __name__ == "__main__":
     args.get_model_explanations = True
     # args.save_feature_plots = True
     # Set seed for reproducibility
+
     set_seed(args.seed)
 
     main(args)

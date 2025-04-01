@@ -1157,6 +1157,8 @@ def prepare_data(train_data: pd.DataFrame,
                  positive_class: Optional[str] = "mental_stress",
                  negative_class: Optional[str] = "baseline",
                  resampling_method: Optional[str] = None,
+                 balance_positive_sublabels: Optional[bool] = False,
+                 balance_sublabels_method: Optional[str] = "upsample",
                  scaler: Optional[str] = None,
                  use_quantile_transformer: Optional[bool] = False,
                  use_subset: Optional[list[bool]] = None,
@@ -1165,7 +1167,6 @@ def prepare_data(train_data: pd.DataFrame,
                  leave_one_out: Optional[bool] = False,
                  leave_out_stressor_name:Optional[str]= None,
                  ) -> tuple:
-
     """
     Prepares the data for scikit-learn models. Can handle both 2-way (train/val) and 3-way (train/val/test) splits.
 
@@ -1173,12 +1174,14 @@ def prepare_data(train_data: pd.DataFrame,
         train_data: DataFrame containing the training data
         val_data: DataFrame containing the validation data
         test_data: Optional DataFrame containing the test data. If None, assumes 2-way split
-        imputation_method: Optional. Str. Either 'drop', 'knn' or 'knn_subset'
+        imputation_method: Optional. Str. Either 'drop', 'knn', 'knn_subset', or 'iterative_imputer'
         positive_class: str, which category to be encoded as 1
         negative_class: str, which category to be encoded as 0
+        resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
+        balance_positive_sublabels: bool, whether to balance sublabels within the positive class
+        balance_sublabels_method: str, "upsample" or "downsample" the sublabels within positive class
         scaler: StandardScaler instance for normalization
         use_quantile_transformer: If set, we transform the features to normal distribution first
-        resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
         use_subset: bool, list of bool to indicate which features should be included or not
         save_path: str. Save path to plot the feature plots and save them so we can see what is going on
         save_feature_plots: bool. Save feature plots which are then saved in save path
@@ -1187,11 +1190,10 @@ def prepare_data(train_data: pd.DataFrame,
 
     Returns:
         If test_data is provided:
-            Tuple of ((X_train, y_train), (X_val, y_val), (X_test, y_test), feature_names)
+            Tuple of ((X_train, y_train, label_train), (X_val, y_val, label_val), (X_test, y_test, label_test), feature_names)
         If test_data is None:
-            Tuple of ((X_train, y_train), (X_val, y_val), feature_names)
+            Tuple of ((X_train, y_train, label_train), (X_val, y_val, label_val), feature_names)
     """
-
     # Old code
     assert imputation_method in ["drop", "knn", "knn_subset", "iterative_imputer"], \
         "Please use as imputation method either 'knn', 'drop' or 'knn_subset'."
@@ -1222,10 +1224,16 @@ def prepare_data(train_data: pd.DataFrame,
         if test_data is not None:
             test_data = handle_missing_data(test_data)
 
+    # First, if requested, balance the sublabels within the positive class
+    if balance_positive_sublabels:
+        print(f"Balancing sublabels within positive class '{positive_class}' using {balance_sublabels_method} method")
+        upsample = balance_sublabels_method.lower() == "upsample"
+        train_data = balance_sublabels(train_data, positive_class, upsample)
+
     # If no resampling, just shuffle and encode the data
     train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
     x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class,
-                                                leave_one_out, leave_out_stressor_name)
+                                               leave_one_out, leave_out_stressor_name)
 
     # We have not yet cleaned up missing values, so we replace them with nan values first
     x_train = x_train.replace([np.inf, -np.inf], np.nan)
@@ -1303,19 +1311,24 @@ def prepare_data(train_data: pd.DataFrame,
         # Check if any missing values are still present:
         assert np.isnan(x_train).sum() == 0, "Imputation did not work!"
 
-    # Apply resampling only to training data
+    # Apply resampling only to training data (this now happens after sublabel balancing if enabled)
     if resampling_method in ["downsample", "upsample"]:
         do_downsampling = resampling_method == "downsample"
         train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
-        x_train, y_train = encode_data(train_data, positive_class, negative_class)
+        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class, 
+                                                  leave_one_out, leave_out_stressor_name)
 
     elif resampling_method == "smote":
+        # SMOTE doesn't preserve the original label information, so we need to make sure
+        # we're only generating synthetic samples for the positive class after sublabel balancing
         smote = SMOTE(random_state=42)
         x_train, y_train = smote.fit_resample(x_train, y_train)
-
+        # Note: label_train will be lost during SMOTE resampling
+        
     elif resampling_method == "adasyn":
         adasyn = ADASYN(random_state=42)
         x_train, y_train = adasyn.fit_resample(x_train, y_train)
+        # Note: label_train will be lost during ADASYN resampling
 
     # Return appropriate tuple based on whether test_data was provided
     if test_data is not None and val_data is not None:
@@ -2377,3 +2390,74 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
     # plt.savefig(save_path, bbox_inches='tight', dpi=400)
     plt.show()
     plt.close()
+
+
+def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = True) -> pd.DataFrame:
+    """
+    Balances different labels within the positive class to ensure equal representation of each of the labels.
+    
+    Args:
+        data: DataFrame containing the data
+        positive_class: The category name that represents the positive class
+        upsample: If True, upsample minority labels; if False, downsample majority labels
+        
+    Returns:
+        DataFrame with balanced sublabels within the positive class
+    """
+    # Get only the positive class data
+    positive_data = data[data['category'] == positive_class].copy()
+    # Get the negative class data (we'll keep this unchanged)
+    negative_data = data[data['category'] != positive_class].copy()
+    
+    # Count occurrences of each label in the positive class
+    label_counts = positive_data['label'].value_counts()
+    
+    # Determine target count based on upsampling or downsampling
+    if upsample:
+        target_count = label_counts.max()
+    else:
+        target_count = label_counts.min()
+    
+    # Resample each sublabel
+    balanced_positive_data = pd.DataFrame()
+    
+    for label, count in label_counts.items():
+        label_data = positive_data[positive_data['label'] == label]
+        
+        if count == target_count:
+            # No resampling needed
+            resampled_data = label_data
+        elif count < target_count:
+            # Upsample
+            resampled_data = resample(
+                label_data,
+                replace=True,
+                n_samples=target_count,
+                random_state=42
+            )
+        else:
+            # Downsample
+            resampled_data = resample(
+                label_data,
+                replace=False,
+                n_samples=target_count,
+                random_state=42
+            )
+        
+        balanced_positive_data = pd.concat([balanced_positive_data, resampled_data])
+
+    # Combine balanced positive data with the negative data
+    balanced_data = pd.concat([balanced_positive_data, negative_data])
+
+    # Check if it worked:
+    label_counts_check = balanced_positive_data['label'].value_counts()
+
+    # Add some assertion statement here:
+    # Add some assertion statement here:
+    assert all(count == target_count for count in label_counts_check), \
+        f"Sublabel balancing failed. Expected all labels to have {target_count} samples, but got: {label_counts_check}"
+
+    # Shuffle the final dataset
+    balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
+    
+    return balanced_data
