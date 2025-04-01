@@ -290,7 +290,7 @@ class ECGDataset:
         # We calculate the average HR reactivity based on participant id
         total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
 
-        if reference.lower() == "sitting":
+        if (reference.lower() == "sitting") or (reference.lower() == "standing"):
             column = "label"
         elif reference.lower() == "baseline":
             column = "category"
@@ -508,7 +508,7 @@ class ECGDataset:
                            fontsize=11)
 
         # Add descriptive text about the calculation method
-        if reference.lower() == "sitting":
+        if (reference.lower() == "sitting") or (reference.lower() == "standing"):
             fig.text(0.5, 0.01, f"{label_plot} reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during {reference.lower()} baseline",
                      ha='center', fontsize=10, fontstyle='italic')
         else:

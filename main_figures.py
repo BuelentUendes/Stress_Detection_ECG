@@ -53,6 +53,7 @@ LABEL_ABBREVIATION_DICT = {
     "low_physical_activity": "LPA",
     "rest": "REST",
     "any_physical_activity": "ANY_PHY",
+    "non_physical_activity": "NON_PHY",
 }
 
 
@@ -303,7 +304,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
             # Adjusted label placement to avoid overlapping
             y_positions = []  # Track annotated y-positions
-            offset = 0.175 * (max(means) - min(means))  # Adaptive offset for better spacing
+            offset = 0.015 * (max(means) - min(means))  # Adaptive offset for better spacing
 
             for i, (pos, mean) in enumerate(zip(x_pos[valid_idx], means[valid_idx])):
                 new_y = mean
@@ -450,7 +451,7 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
 
             # Prevent overlapping labels
             y_positions = []
-            offset = 0.015 * (max(means[valid_idx]) - min(means[valid_idx]))
+            offset = 0.0015 * (max(means[valid_idx]) - min(means[valid_idx]))
 
             for pos, mean in zip(x_pos[valid_idx], means[valid_idx]):
                 new_y = mean
@@ -485,7 +486,7 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
 
 def main(args):
     # Get all sample frequencies to analyze
-    sample_frequencies = [128, 256, 512, 1000]  # Add or modify frequencies as needed
+    sample_frequencies = [125, 250, 500, 1000]  # Add or modify frequencies as needed
 
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
     figures_path = os.path.join(FIGURES_PATH, str(args.sample_frequency),
@@ -499,6 +500,7 @@ def main(args):
         "rest",
         "any_physical_activity"
     ]) or (args.positive_class in [
+        "mental_stress",
         "low_physical_activity",
         "moderate_physical_activity",
         "rest",
@@ -576,7 +578,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="baseline",
+    parser.add_argument("--negative_class", help="Which category should be 0", default="low_physical_activity",
                         type=validate_category)
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)

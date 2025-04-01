@@ -409,14 +409,15 @@ def main(args):
 
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
 
-    if args.negative_class in ["baseline"]:
+    if args.negative_class in ["baseline", "low_physical_activity"]:
+        reference = "Sitting" if args.negative_class == "baseline" else "Standing"
         # We plot the reference HR reactivity only always against the true negative reference class sitting
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
-                                                  reference=args.negative_class, show_plot=False)
+                                                  reference=reference, show_plot=False)
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
-                                                  reference="Sitting", show_plot=False)
+                                                  reference=reference, show_plot=False)
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
-                                                  reference="Sitting", heart_measure="hr_mean",
+                                                  reference=reference, heart_measure="hr_mean",
                                                   show_plot=False)
 
         ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
@@ -679,7 +680,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1",
-                        default="mental_stress",
+                        default="low_physical_activity",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
                         default="baseline",
