@@ -446,9 +446,11 @@ class ECGDataset:
             ax.text(i, current_max + y_buffer, significance,
                     horizontalalignment='center', fontsize=12, fontweight='bold')
 
+        label_plot =  heart_measure.split("_")[0].upper()
+
         # Customize the plot appearance
         ax.set_xlabel('Task', fontsize=14, fontweight='bold')
-        ax.set_ylabel('HRV Reactivity\n(Δ from baseline)', fontsize=14, fontweight='bold')
+        ax.set_ylabel(f'{label_plot} Reactivity\n(Δ from baseline)', fontsize=14, fontweight='bold')
 
         # Improve x-tick labels for readability
         plt.xticks(rotation=45, ha='right')
@@ -476,7 +478,7 @@ class ECGDataset:
 
         # Add main elements
         legend_items.append(mlines.Line2D([], [], color='red', linestyle="--",
-                                          lw=1.5, alpha=0.7, label='HR reactivity threshold'))
+                                          lw=1.5, alpha=0.7, label=f'{label_plot} reactivity threshold'))
         legend_items.append(
             mlines.Line2D([], [], marker='D', color='white', markerfacecolor='black', markersize=8, label='Mean'))
         legend_items.append(mlines.Line2D([], [], marker='_', color='black', lw=1.5, markersize=10, label='Median'))
@@ -507,10 +509,10 @@ class ECGDataset:
 
         # Add descriptive text about the calculation method
         if reference.lower() == "sitting":
-            fig.text(0.5, 0.01, f"HRV reactivity calculated as HRV during experimental task minus HRV during {reference.lower()} baseline",
+            fig.text(0.5, 0.01, f"{label_plot} reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during {reference.lower()} baseline",
                      ha='center', fontsize=10, fontstyle='italic')
         else:
-            fig.text(0.5, 0.01, f"HRV reactivity calculated as HRV during experimental task minus HRV during baseline (sitting + recovery sitting)",
+            fig.text(0.5, 0.01, f"HRV reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during baseline (sitting + recovery sitting)",
                      ha='center', fontsize=10, fontstyle='italic')
 
         # Adjust layout to make room for the legend
@@ -691,11 +693,25 @@ class ECGDataset:
         return self.train_data, self.val_data, self.test_data
 
 
-#Todo: Extend to multiclass classification
-def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def encode_data(
+        data: pd.DataFrame,
+        positive_class: str,
+        negative_class: str,
+        leave_one_out: bool,
+        leave_out_stressor_name: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # First drop data that is not either in the positive class or negative class
 
-    if (negative_class == "any_physical_activity") or (positive_class == "any_physical_activity"):
+    # Special case for any_physical_activity vs non_physical_activity
+    if positive_class == "any_physical_activity" and negative_class == "non_physical_activity":
+        possible_physical_activities = ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
+        
+        # Keep all data - we want to classify between physical activities and everything else
+        # Encode as 1 for any physical activity and 0 for everything else
+        data.loc[:, 'category'] = data['category'].apply(
+            lambda x: 1 if x in possible_physical_activities else 0)  # Encode classes
+
+    elif (negative_class == "any_physical_activity") or (positive_class == "any_physical_activity"):
         possible_physical_activities =  ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
 
         if negative_class == "any_physical_activity":
@@ -717,12 +733,38 @@ def encode_data(data: pd.DataFrame, positive_class: str, negative_class: str) ->
         data = data[(data["category"] != "high_physical_activity")]
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
+    elif (negative_class == "non_physical_activity") or (positive_class == "non_physical_activity"):
+        possible_physical_activities = ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
+
+        if negative_class == "non_physical_activity":
+            data = data[
+                (data['category'] == positive_class) | (
+                    ~data['category'].isin(possible_physical_activities))]  # Filter relevant classes
+        else:
+            data = data[
+                (data['category'] == negative_class) | ~(data['category'].isin(possible_physical_activities))]
+
+        # Then label the data 1 for positive and 0 for negative
+        if positive_class == "non_physical_activity":
+            data.loc[:, 'category'] = data['category'].apply(
+                lambda x: 1 if x not in possible_physical_activities else 0)  # Encode classes
+        else:
+            data.loc[:, 'category'] = data['category'].apply(
+                lambda x: 1 if x == positive_class else 0)  # Encode classes
+
     else:
         data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
         # Then label the data 1 for positive and 0 for negative
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
-    # Split data into x_data and y_data
+    if leave_one_out:
+        if any(data.label.str.lower().str.startswith(leave_out_stressor_name)):
+            data = data[~data.label.str.lower().str.startswith(leave_out_stressor_name)]
+            assert not any(
+                data.label.str.lower().str.startswith(leave_out_stressor_name)), "leave out operation went wrong!"
+        else:
+            print(f"We could not find {leave_out_stressor_name} in our dataset")
+
     x = data.drop(columns=["category", "label"]).reset_index(drop=True) if "label" in list(data.columns) \
         else data.drop(columns=["category"]).reset_index(drop=True)
     label = data["label"].reset_index(drop=True) if "label" in list(data.columns) \
@@ -1120,6 +1162,8 @@ def prepare_data(train_data: pd.DataFrame,
                  use_subset: Optional[list[bool]] = None,
                  save_path: Optional[str] = None,
                  save_feature_plots: bool = False,
+                 leave_one_out: Optional[bool] = False,
+                 leave_out_stressor_name:Optional[str]= None,
                  ) -> tuple:
 
     """
@@ -1138,6 +1182,8 @@ def prepare_data(train_data: pd.DataFrame,
         use_subset: bool, list of bool to indicate which features should be included or not
         save_path: str. Save path to plot the feature plots and save them so we can see what is going on
         save_feature_plots: bool. Save feature plots which are then saved in save path
+        leave_one_out: Optional[bool]: If we use the leave one out setting,
+        leave_out_stressor_name: Optional[str]: If leave one out setting is used, which stressor to leave out
 
     Returns:
         If test_data is provided:
@@ -1149,6 +1195,15 @@ def prepare_data(train_data: pd.DataFrame,
     # Old code
     assert imputation_method in ["drop", "knn", "knn_subset", "iterative_imputer"], \
         "Please use as imputation method either 'knn', 'drop' or 'knn_subset'."
+
+    # lf_feature.Power is useless as it does not vary at all. Check this!
+    if 'lf_Feature.POWER' in train_data.columns:
+        # Check if sampen is included in the data columns
+        train_data.drop('lf_Feature.POWER', axis=1, inplace=True)
+    if (test_data is not None) and ('lf_Feature.POWER' in test_data.columns):
+        test_data.drop('lf_Feature.POWER', axis=1, inplace=True)
+    if 'lf_Feature.POWER' in val_data.columns:
+        val_data.drop('lf_Feature.POWER', axis=1, inplace=True)
 
     # Sampen
     if imputation_method == "drop":
@@ -1169,18 +1224,24 @@ def prepare_data(train_data: pd.DataFrame,
 
     # If no resampling, just shuffle and encode the data
     train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
-    x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class)
+    x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class,
+                                                leave_one_out, leave_out_stressor_name)
 
     # We have not yet cleaned up missing values, so we replace them with nan values first
     x_train = x_train.replace([np.inf, -np.inf], np.nan)
 
     # Could we handle the missing data here?
     if val_data is not None:
-        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class)
+        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class,
+                                              leave_one_out, leave_out_stressor_name)
         x_val = x_val.replace([np.inf, -np.inf], np.nan)
 
     if test_data is not None:
-        x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class)
+        # In  test data we never leave out any stressor, only test and val data
+        leave_one_out = False
+
+        x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class,
+                                                 leave_one_out, leave_out_stressor_name)
         x_test = x_test.replace([np.inf, -np.inf], np.nan)
 
     # Ensure the length of use_subset matches the number of features
@@ -1198,7 +1259,6 @@ def prepare_data(train_data: pd.DataFrame,
 
     feature_names = list(x_train.columns.values)
 
-    # We need to test here each feature if it is normally distributed (pd.DataFrame)
     # If positive values only -> maybe log transform
     # Else min-max scaling
     viewer, run_all, transformed_df, stats = analyze_feature_distributions(x_test)

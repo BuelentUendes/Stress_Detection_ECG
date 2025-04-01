@@ -51,6 +51,7 @@ LABEL_ABBREVIATION_DICT = {
     "low_physical_activity": "LPA",
     "rest": "REST",
     "any_physical_activity": "ANY_PHY",
+    "non_physical_activity": "NON_PHY",
 }
 
 
@@ -361,11 +362,23 @@ def main(args):
         print(f"We fit the model {MODELS_ABBREVIATION_DICT[args.model_type.lower()]}")
 
     # Get separate folders for best run and optimization history for better overview and selected features if selected
-    results_path_best_performance = os.path.join(results_path_root, "best_performance")
-    results_path_history = os.path.join(results_path_root, "history")
-    results_path_feature_selection = os.path.join(results_path_root, "feature_selection")
-    results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
-    results_path_model_weights = os.path.join(results_path_root, "best_model_weights")
+    if args.leave_one_out:
+        results_path_best_performance = os.path.join(results_path_root, "leave_one_out", args.leave_out_stressor_name,
+                                                     "best_performance")
+        results_path_history = os.path.join(results_path_root, "leave_one_out", args.leave_out_stressor_name,
+                                            "history")
+        results_path_feature_selection = os.path.join(results_path_root, "leave_one_out", args.leave_out_stressor_name,
+                                                      "feature_selection")
+        results_path_bootstrap_performance = os.path.join(results_path_root, "leave_one_out", args.leave_out_stressor_name,
+                                                          "bootstrap_test")
+        results_path_model_weights = os.path.join(results_path_root, "leave_one_out", args.leave_out_stressor_name,
+                                                  "best_model_weights")
+    else:
+        results_path_best_performance = os.path.join(results_path_root, "best_performance")
+        results_path_history = os.path.join(results_path_root, "history")
+        results_path_feature_selection = os.path.join(results_path_root, "feature_selection")
+        results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
+        results_path_model_weights = os.path.join(results_path_root, "best_model_weights")
 
     # Figures path
     figures_path_hist = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison)
@@ -389,6 +402,10 @@ def main(args):
                                                   reference=args.negative_class, show_plot=False)
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
                                                   reference="Sitting", show_plot=False)
+        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
+                                                  reference="Sitting", heart_measure="hr_mean",
+                                                  show_plot=False)
+
         ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
 
     if args.use_feature_selection:
@@ -460,6 +477,8 @@ def main(args):
         use_subset=selected_features if args.use_feature_selection else None,
         save_path=figures_path_feature_plots,
         save_feature_plots=args.save_feature_plots,
+        leave_one_out=args.leave_one_out,
+        leave_out_stressor_name=args.leave_out_stressor_name
     )
 
     # Setup for hyperparameter optimization
@@ -728,6 +747,11 @@ if __name__ == "__main__":
     parser.add_argument("--save_feature_plots", action="store_true",
                         help="If we want to show the distribution of the feature plots. "
                              "If set, we will save the feature plots. This will take longer though!")
+    parser.add_argument("--leave_one_out", action="store_true",
+                        help="We will train and validate without a stressor")
+    parser.add_argument("--leave_out_stressor_name", help="Which stressor to leave out",
+                        choices=("ta", "pasat", "raven", "ssst","none"), default=None, type=str)
+
     args = parser.parse_args()
 
     args.verbose = True
@@ -738,7 +762,7 @@ if __name__ == "__main__":
     # args.use_top_features = True
     args.do_hyperparameter_tuning = True
     args.get_model_explanations = True
-    args.save_feature_plots = True
+    # args.save_feature_plots = True
     # Set seed for reproducibility
     set_seed(args.seed)
 
