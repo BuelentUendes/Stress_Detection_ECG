@@ -50,6 +50,11 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from typing import Optional, Tuple, Dict, Union, List
 import warnings
+import umap
+import time
+from matplotlib.patches import Patch
+from utils.helper_path import FIGURES_PATH
+from sklearn.manifold import TSNE
 
 
 def create_directory(path: str) -> None:
@@ -157,16 +162,16 @@ class ECGDataset:
             # Get data for this participant
             participant_df = data[data["participant_id"] == participant].copy()
             participant_df = participant_df.reset_index(drop=True)  # Reset index for proper splitting
-            
+
             # Find the index where 'Recov_standing' occurs
             recov_indices = participant_df.index[participant_df["label"] == "Recov_standing"]
-            
+
             if len(recov_indices) == 0:
                 print(f"Warning: No 'Recov_standing' found for participant {participant}. Skipping.")
                 continue
-            
+
             split_idx = recov_indices[0]  # Take the first occurrence
-            
+
             # Split the data at the recovery standing point
             train_data = participant_df.loc[:split_idx-1]
             test_data = participant_df.loc[split_idx:]
@@ -184,7 +189,7 @@ class ECGDataset:
         # Combine all participants' data
         if not train_frames or not test_frames:
             raise ValueError("No valid splits found in the data. Check if 'Recov_standing' exists in labels.")
-        
+
         training_data = pd.concat(train_frames, axis=0, ignore_index=True)
         testing_data = pd.concat(test_frames, axis=0, ignore_index=True)
 
@@ -286,19 +291,29 @@ class ECGDataset:
     def get_average_hr_reactivity_box(self, positive_class, negative_class, save_path,
                                       show_plot=True,
                                       reference="Sitting",
+                                      exclude_recovery= False,
                                       heart_measure="hrv_mean"):
         # We calculate the average HR reactivity based on participant id
         total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
 
         if (reference.lower() == "sitting") or (reference.lower() == "standing"):
-            column = "label"
+            col_name = "label"
         elif reference.lower() == "baseline":
-            column = "category"
+            col_name = "category"
         else:
             raise ValueError("Please input either reference 'sitting' or 'baseline'")
 
-        negative_class_baseline = total_data_participant[total_data_participant[column] == reference][
-            [heart_measure, "participant_id"]]
+        # Build the filtering condition based on whether recovery should be excluded
+        if exclude_recovery:
+            filter_condition = total_data_participant[col_name] == reference
+        else:
+            filter_condition = (
+                    (total_data_participant[col_name] == reference) |
+                    (total_data_participant[col_name] == f"Recov_{reference.lower()}")
+            )
+
+        # Filter the DataFrame and select the desired columns
+        negative_class_baseline = total_data_participant.loc[filter_condition, [heart_measure, "participant_id"]]
         negative_class_baseline_hr = negative_class_baseline.groupby(['participant_id']).mean().reset_index()
 
         positive_class_baseline = total_data_participant[total_data_participant["category"] == positive_class][
@@ -509,6 +524,8 @@ class ECGDataset:
 
         # Add descriptive text about the calculation method
         if (reference.lower() == "sitting") or (reference.lower() == "standing"):
+            if reference.lower() == "standing" and not exclude_recovery:
+                reference = "standing (and recovery standing)"
             fig.text(0.5, 0.01, f"{label_plot} reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during {reference.lower()} baseline",
                      ha='center', fontsize=10, fontstyle='italic')
         else:
@@ -544,7 +561,7 @@ class ECGDataset:
                        category_to_plot: Optional[str] = "mental_stress") -> None:
         """
         Plots a histogram of the specified column, separated by category.
-        
+
         Args:
             column: Name of the column to plot (e.g., 'hr_mean')
             x_label: str: label for the x-axis of the histogram
@@ -555,7 +572,7 @@ class ECGDataset:
             category_to_plot: Optional: Which category to focus on when plotting labels
         """
         plt.figure(figsize=(10, 6))
-        
+
         # Define colors and categories
         colors = {
             'black': '#000000',
@@ -705,7 +722,7 @@ def encode_data(
     # Special case for any_physical_activity vs non_physical_activity
     if positive_class == "any_physical_activity" and negative_class == "non_physical_activity":
         possible_physical_activities = ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
-        
+
         # Keep all data - we want to classify between physical activities and everything else
         # Encode as 1 for any physical activity and 0 for everything else
         data.loc[:, 'category'] = data['category'].apply(
@@ -753,7 +770,8 @@ def encode_data(
                 lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     else:
-        data = data[(data['category'] == positive_class) | (data['category'] == negative_class)]  # Filter relevant classes
+        column_name_negative_class = "label"  if negative_class in ["walking_own_pace", "standing", "sitting"] else "category"
+        data = data[(data['category'] == positive_class) | (data[column_name_negative_class].str.lower() == negative_class)]  # Filter relevant classes
         # Then label the data 1 for positive and 0 for negative
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
@@ -826,7 +844,7 @@ def resample_data(data: pd.DataFrame,
                   downsample: bool) -> pd.DataFrame:
     """
     Resample the data to balance classes, either via upsampling minority or downsampling majority.
-    
+
     Args:
         data: Input DataFrame containing the data
         positive_class: Label of the positive class
@@ -842,7 +860,7 @@ def resample_data(data: pd.DataFrame,
     # Split data by class
     df_positive = data[data["category"] == positive_class]
     df_negative = data[data["category"] == negative_class]
-    
+
     # Determine majority and minority classes
     if len(df_positive) >= len(df_negative):
         majority_df, minority_df = df_positive, df_negative
@@ -1269,7 +1287,8 @@ def prepare_data(train_data: pd.DataFrame,
 
     # If positive values only -> maybe log transform
     # Else min-max scaling
-    viewer, run_all, transformed_df, stats = analyze_feature_distributions(x_test)
+    if test_data is not None:
+        viewer, run_all, transformed_df, stats = analyze_feature_distributions(x_test)
 
     if save_feature_plots:
         for feature_idx in range(len(feature_names)):
@@ -1281,21 +1300,62 @@ def prepare_data(train_data: pd.DataFrame,
         assert scaler.lower() in ["min_max", "standard_scaler"], \
             "please set a valid scaler. Options: 'min_max', 'standard_scaler'"
 
-        # Let's do quantile transformation first before applying scaler
         if use_quantile_transformer:
             print("We use the quantile transformer")
             quantile_transformer_obj = QuantileTransformer(n_quantiles=1000, output_distribution="normal")
-            x_train = quantile_transformer_obj.fit_transform(x_train)
-        scaler_obj = StandardScaler() if scaler.lower() == "standard_scaler" else MinMaxScaler()
-        x_train = scaler_obj.fit_transform(x_train)
-        if val_data is not None:
-            if use_quantile_transformer:
-                x_val = quantile_transformer_obj.transform(x_val)
-            x_val = scaler_obj.transform(x_val)
-        if test_data is not None:
-            if use_quantile_transformer:
-                x_test = quantile_transformer_obj.transform(x_test)
-            x_test = scaler_obj.transform(x_test)
+            x_train = pd.DataFrame(quantile_transformer_obj.fit_transform(x_train),
+                                   columns=x_train.columns, index=x_train.index)
+            if val_data is not None:
+                x_val = pd.DataFrame(quantile_transformer_obj.transform(x_val),
+                                     columns=x_val.columns, index=x_val.index)
+            if test_data is not None:
+                x_test = pd.DataFrame(quantile_transformer_obj.transform(x_test),
+                                      columns=x_test.columns, index=x_test.index)
+
+        # List of special columns to always scale with MinMaxScaler
+        special_cols = [col for col in ["nn20", "nn50", "wmax"] if col in x_train.columns]
+
+        if scaler.lower() == "standard_scaler":
+            # For standard_scaler, use StandardScaler on other columns and MinMaxScaler on special columns.
+            other_cols = [col for col in x_train.columns if col not in special_cols]
+
+            # Instantiate scalers
+            scaler_obj = StandardScaler()
+            min_max_scaler = MinMaxScaler()
+
+            # Create copies to hold scaled data
+            x_train = x_train.copy()
+            # Fit and transform the "other" columns
+            if other_cols:
+                x_train[other_cols] = scaler_obj.fit_transform(x_train[other_cols])
+            # Fit and transform the special columns with MinMaxScaler
+            if special_cols:
+                x_train[special_cols] = min_max_scaler.fit_transform(x_train[special_cols])
+
+            # Apply the same transformation on validation and test sets if available.
+            if val_data is not None:
+                x_val = x_val.copy()
+                if other_cols:
+                    x_val[other_cols] = scaler_obj.transform(x_val[other_cols])
+                if special_cols:
+                    x_val[special_cols] = min_max_scaler.transform(x_val[special_cols])
+            if test_data is not None:
+                x_test_scaled = x_test.copy()
+                if other_cols:
+                    x_test[other_cols] = scaler_obj.transform(x_test[other_cols])
+                if special_cols:
+                    x_test[special_cols] = min_max_scaler.transform(x_test[special_cols])
+        else:
+            # Otherwise, use the specified scaler (likely MinMaxScaler) on the entire dataset.
+            scaler_obj = MinMaxScaler()  # or your alternative scaler if needed
+            x_train = pd.DataFrame(scaler_obj.fit_transform(x_train),
+                                          columns=x_train.columns, index=x_train.index)
+            if val_data is not None:
+                x_val = pd.DataFrame(scaler_obj.transform(x_val),
+                                            columns=x_val.columns, index=x_val.index)
+            if test_data is not None:
+                x_test = pd.DataFrame(scaler_obj.transform(x_test),
+                                             columns=x_test.columns, index=x_test.index)
 
     # Here we should use the KNN imputer then
     if imputation_method in ["knn", "iterative_imputer"]:
@@ -1315,7 +1375,7 @@ def prepare_data(train_data: pd.DataFrame,
     if resampling_method in ["downsample", "upsample"]:
         do_downsampling = resampling_method == "downsample"
         train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
-        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class, 
+        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class,
                                                   leave_one_out, leave_out_stressor_name)
 
     elif resampling_method == "smote":
@@ -1324,11 +1384,36 @@ def prepare_data(train_data: pd.DataFrame,
         smote = SMOTE(random_state=42)
         x_train, y_train = smote.fit_resample(x_train, y_train)
         # Note: label_train will be lost during SMOTE resampling
-        
+
     elif resampling_method == "adasyn":
         adasyn = ADASYN(random_state=42)
         x_train, y_train = adasyn.fit_resample(x_train, y_train)
         # Note: label_train will be lost during ADASYN resampling
+
+    # # For better clustering with UMAP
+    # fig, ax, embedding = visualize_dimensionality_reduction(
+    #     x_train, y_train, label_train,
+    #     method='umap',
+    #     include_baseline=False,
+    #     # UMAP adjustments for tighter clusters
+    #     n_neighbors=5,
+    #     min_dist=0.00000,
+    #     metric='euclidean',
+    #     subset_size=250,
+    # )
+    #
+    # # For better clustering with t-SNE
+    # fig, ax, embedding = visualize_dimensionality_reduction(
+    #     x_train, y_train, label_train,
+    #     method='tsne',
+    #     include_baseline=False,
+    #     min_dist=0.0,
+    #     # t-SNE adjustments
+    #     perplexity=25,
+    #     n_iter=2000,
+    #     early_exaggeration=18.0,
+    #     learning_rate=150  #
+    # )
 
     # Return appropriate tuple based on whether test_data was provided
     if test_data is not None and val_data is not None:
@@ -1357,9 +1442,9 @@ def get_ml_model(model: str, params: dict = None):
     Returns the machine learning model initialized with the specified configuration settings.
 
     Args:
-        model (str): The name of the machine learning model to initialize. 
+        model (str): The name of the machine learning model to initialize.
                      Options include 'DT', 'RF', 'AdaBoost', 'LDA', 'KNN', 'LR', 'XGBoost', 'QDA'.
-        params (dict, optional): A dictionary of parameters to initialize the model. 
+        params (dict, optional): A dictionary of parameters to initialize the model.
                                  If None, default parameters will be used.
 
     Raises:
@@ -1593,7 +1678,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
     return results
 
-def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame], 
+def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame],
                        y_test: Union[np.ndarray, pd.Series],
                        seed: Optional[int] = 42) -> tuple[Union[np.ndarray, pd.DataFrame],
                                                                     Union[np.ndarray, pd.Series]]:
@@ -1605,13 +1690,13 @@ def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame],
     # Resample the dataset with replacement using the controlled random state
     indices = rng.choice(n_samples, size=n_samples, replace=True)
     # indices = np.random.choice(n_samples, size=n_samples, replace=True)
-    
+
     # Handle both pandas and numpy inputs
     if isinstance(X_test, pd.DataFrame):
         X_bootstrapped = X_test.iloc[indices]
     else:
         X_bootstrapped = X_test[indices]
-        
+
     if isinstance(y_test, pd.Series):
         y_bootstrapped = y_test.iloc[indices]
     else:
@@ -1702,11 +1787,11 @@ def bootstrap_test_performance(
 ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, dict[str, float]]] | None]:
     """
     Performs bootstrap resampling to estimate model performance metrics and their confidence intervals.
-    
+
     This function repeatedly samples the test data with replacement to create bootstrap samples,
     evaluates the model on each sample, and calculates performance metrics along with their
     95% confidence intervals.
-    
+
     Args:
         model: Trained classifier model that implements predict_proba and predict methods
         test_data: tuple of (X_test, y_test) containing:
@@ -1715,7 +1800,7 @@ def bootstrap_test_performance(
         bootstrap_samples: int, number of bootstrap iterations (default: 1000)
         bootstrap_method: str, which method to use for bootstrap samples.
         f1_score_threshold: float: Threshold to determine the positive class
-    
+
     Returns:
         dict: Dictionary containing performance metrics and their confidence intervals:
             {
@@ -1764,10 +1849,10 @@ def bootstrap_test_performance(
                 # Get the subcategory data
                 X_subcategory = X_test.iloc[idx_category] if isinstance(X_test, pd.DataFrame) else X_test[idx_category]
                 y_subcategory = y_test.iloc[idx_category] if isinstance(y_test, pd.Series) else y_test[idx_category]
-                
+
                 # Perform bootstrap resampling on the subcategory data
                 X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory, seed=idx)
-                
+
                 # Get predictions
                 roc_auc, pr_auc, balanced_accuracy_score, f1_score = get_performance_metric_bootstrapped(
                     model, X_bootstrap, y_bootstrap, f1_score_threshold)
@@ -1824,7 +1909,7 @@ class FeatureSelectionPipeline:
         "random_baseline": DummyClassifier
     }
 
-    def __init__(self, 
+    def __init__(self,
                  base_estimator: BaseEstimator,
                  feature_names: str,
                  n_features_range: list[int],
@@ -1834,7 +1919,7 @@ class FeatureSelectionPipeline:
                  random_state: int = 42):
         """
         Initialize the pipeline.
-        
+
         Args:
             base_estimator: Base model for feature selection and final model
             n_features_range: List of number of features to try
@@ -1850,7 +1935,7 @@ class FeatureSelectionPipeline:
         self.n_splits = n_splits
         self.scoring = scoring
         self.random_state = random_state
-        
+
         self.best_features_mask = None
         self.feature_importance = None
         self.cv_results = None
@@ -1975,49 +2060,49 @@ class FeatureSelectionPipeline:
         """
         Find best hyperparameters for base estimator using Optuna optimization.
         Results are cached to avoid redundant optimization.
-        
+
         Args:
             train_data: Tuple of (X_train, y_train)
             val_data: Tuple of (X_val, y_val)
             n_trials: Number of optimization trials
             save_path: Path to cache hyperparameters. If None, no caching is used.
-        
+
         Returns:
             dict: Best hyperparameters
         """
         # Create Optuna study
         study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=42))
-        
+
         # Get model type string from base_estimator class
         model_type = None
         for key, cls in self.model_classes.items():
             if isinstance(self.base_estimator, cls):
                 model_type = key
                 break
-        
+
         if model_type is None:
             raise ValueError("Unknown base estimator type")
-        
+
         # Define objective function wrapper
         def objective(trial):
             return self._objective(trial, train_data, val_data, model_type, self.scoring)
-        
+
         # Run optimization
         study.optimize(objective, n_trials=n_trials)
-        
+
         # Get best parameters
         best_params = study.best_params
 
         return best_params
 
-    def fit(self, 
+    def fit(self,
             train_data: tuple[np.ndarray, np.ndarray],
             val_data: tuple[np.ndarray, np.ndarray],
             feature_names: list[str] = None,
             save_path: Optional[str] = None) -> None:
         """
         Fit the feature selection pipeline using provided train/val sets.
-        
+
         Args:
             train_data: Tuple of (X_train, y_train)
             val_data: Tuple of (X_val, y_val)
@@ -2026,7 +2111,7 @@ class FeatureSelectionPipeline:
         """
         X_train, y_train, _ = train_data
         X_val, y_val, _ = val_data
-        
+
         # First find best hyperparameters
         best_params = self.find_best_hyperparameter_base_estimator(
             train_data,
@@ -2034,10 +2119,10 @@ class FeatureSelectionPipeline:
             n_trials=self.n_trials,
             save_path=save_path
         )
-        
+
         # Create optimized base estimator
         optimized_estimator = clone(self.base_estimator).set_params(**best_params)
-        
+
         # Try each number of features
         scores = []
         feature_importance_scores = np.zeros(X_train.shape[1])
@@ -2051,13 +2136,13 @@ class FeatureSelectionPipeline:
         for n_features in self.n_features_range:
             counter += 1
             print(f"Evaluating {n_features} features")
-            
+
             # Feature selection using optimized estimator
             rfe = RFE(
                 estimator=clone(optimized_estimator),
                 n_features_to_select=n_features
             )
-            
+
             # Create and fit pipeline
             pipeline = Pipeline([
                 ('rfe', rfe),
@@ -2065,7 +2150,7 @@ class FeatureSelectionPipeline:
             ])
             print(f"Fitting estimator")
             pipeline.fit(X_train, y_train)
-            
+
             # Score on validation set
             if self.scoring == 'roc_auc':
                 score = roc_auc_score(y_val, pipeline.predict_proba(X_val)[:, 1])
@@ -2073,7 +2158,7 @@ class FeatureSelectionPipeline:
                 score = balanced_accuracy_score(y_val, pipeline.predict(X_val))
             print(f"The score is {score}")
             scores.append(score)
-            
+
             # Track feature importance
             feature_importance_scores += rfe.ranking_
             selected_features_count += rfe.support_
@@ -2089,14 +2174,14 @@ class FeatureSelectionPipeline:
 
         # Find best number of features
         best_n_features = self.n_features_range[np.argmax(scores)]
-        
+
         # Final feature selection with best number of features
         final_rfe = RFE(
             estimator=clone(optimized_estimator),
             n_features_to_select=best_n_features
         )
         final_rfe.fit(X_train, y_train)
-        
+
         # Store results
         self.best_features_mask = final_rfe.support_
         self.cv_results = {
@@ -2395,12 +2480,12 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
 def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = True) -> pd.DataFrame:
     """
     Balances different labels within the positive class to ensure equal representation of each of the labels.
-    
+
     Args:
         data: DataFrame containing the data
         positive_class: The category name that represents the positive class
         upsample: If True, upsample minority labels; if False, downsample majority labels
-        
+
     Returns:
         DataFrame with balanced sublabels within the positive class
     """
@@ -2408,22 +2493,22 @@ def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = 
     positive_data = data[data['category'] == positive_class].copy()
     # Get the negative class data (we'll keep this unchanged)
     negative_data = data[data['category'] != positive_class].copy()
-    
+
     # Count occurrences of each label in the positive class
     label_counts = positive_data['label'].value_counts()
-    
+
     # Determine target count based on upsampling or downsampling
     if upsample:
         target_count = label_counts.max()
     else:
         target_count = label_counts.min()
-    
+
     # Resample each sublabel
     balanced_positive_data = pd.DataFrame()
-    
+
     for label, count in label_counts.items():
         label_data = positive_data[positive_data['label'] == label]
-        
+
         if count == target_count:
             # No resampling needed
             resampled_data = label_data
@@ -2443,7 +2528,7 @@ def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = 
                 n_samples=target_count,
                 random_state=42
             )
-        
+
         balanced_positive_data = pd.concat([balanced_positive_data, resampled_data])
 
     # Combine balanced positive data with the negative data
@@ -2459,5 +2544,903 @@ def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = 
 
     # Shuffle the final dataset
     balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
-    
+
     return balanced_data
+
+
+def visualize_umap_clusters(
+        x_data: Union[np.ndarray, pd.DataFrame],
+        y_data: Union[np.ndarray, pd.Series],
+        labels: Union[np.ndarray, pd.Series, None] = None,
+        n_neighbors: int = 30,
+        min_dist: float = 0.01,
+        n_components: int = 2,
+        metric: str = 'euclidean',
+        random_state: int = 42,
+        save_path: str = None,
+        title: str = "UMAP Projection of Data",
+        save_name: str = "umap_visualization.png",
+        figsize: tuple = (12, 10),
+        show_plot: bool = True,
+        use_subset: bool = True,
+        subset_size: int = 500,
+        label_points: bool = False,
+        highlight_outliers: bool = True,
+        label_color_map: Optional[dict] = None,
+        colormap_categorical: str = 'tab10',
+        colormap_continuous: str = 'viridis',
+        include_baseline: bool = True,
+        alpha_main: float = 0.7,
+        alpha_baseline: float = 0.2,
+        verbose: bool = True,
+        point_size: int = 40,
+        dpi: int = 300
+) -> Tuple[plt.Figure, plt.Axes, np.ndarray]:
+    """
+    Creates and saves a UMAP visualization of data clusters, optimized for publication quality.
+
+    Args:
+        x_data: Feature data for UMAP projection
+        y_data: Binary class labels (1 for mental stress, 0 for baseline/reference)
+        labels: Detailed labels for subcategories (like 'Pasat', 'TA', etc.)
+        n_neighbors: UMAP hyperparameter for local neighborhood size
+        min_dist: UMAP hyperparameter for minimum distance between embedded points
+        n_components: Number of dimensions for UMAP output (usually 2)
+        metric: Distance metric for UMAP
+        random_state: Random seed for reproducibility
+        save_path: Directory to save the visualization
+        title: Plot title
+        save_name: Filename for the saved figure
+        figsize: Figure dimensions (width, height) in inches
+        show_plot: Whether to display the plot
+        use_subset: If True, uses a subset of data for faster computation
+        subset_size: Maximum number of samples to use if use_subset is True
+        label_points: If True, adds text labels to representative points for each cluster
+        highlight_outliers: If True, adds a light outline to points that may be outliers
+        label_color_map: Dictionary mapping labels to specific colors
+        colormap_categorical: Colormap name for categorical data
+        colormap_continuous: Colormap name for continuous data
+        include_baseline: Whether to include baseline (class 0) samples in visualization
+        alpha_main: Opacity of main data points
+        alpha_baseline: Opacity of baseline data points
+        verbose: Whether to print progress messages
+        point_size: Size of scatter plot points
+        dpi: Resolution for saved figure
+
+    Returns:
+        Tuple of (figure, axes, embedding) where embedding is the UMAP projection
+    """
+    import umap
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    import time
+    import seaborn as sns
+    from matplotlib.patches import Patch
+    from sklearn.preprocessing import StandardScaler
+
+    start_time = time.time()
+
+    if verbose:
+        print("Starting UMAP visualization process...")
+
+    # Convert inputs to numpy arrays if they're pandas objects
+    if isinstance(x_data, pd.DataFrame):
+        x_data_np = x_data.values
+    else:
+        x_data_np = x_data
+
+    if isinstance(y_data, pd.Series):
+        y_data_np = y_data.values
+    else:
+        y_data_np = y_data
+
+    # Handle labels
+    if labels is not None:
+        if isinstance(labels, pd.Series):
+            labels_np = labels.values
+        else:
+            labels_np = labels
+    else:
+        # If no sublabels provided, use binary class labels
+        labels_np = np.array(['Positive' if y == 1 else 'Baseline' for y in y_data_np])
+
+    # Filter data based on include_baseline parameter
+    if not include_baseline:
+        mask = (y_data_np == 1)
+        x_data_np = x_data_np[mask]
+        labels_np = labels_np[mask]
+        y_data_np = y_data_np[mask]
+        if verbose:
+            print(f"Filtered out baseline data, {len(x_data_np)} samples remaining")
+
+    # Use a subset of data for faster computation if requested
+    if use_subset and len(x_data_np) > subset_size:
+        # Ensure we get a representative sample by stratifying on labels
+        unique_labels = np.unique(labels_np)
+        indices = []
+
+        samples_per_label = subset_size // len(unique_labels)
+        for label in unique_labels:
+            label_indices = np.where(labels_np == label)[0]
+            if len(label_indices) > samples_per_label:
+                # Randomly select samples_per_label indices for this label
+                selected = np.random.choice(label_indices, samples_per_label, replace=False)
+            else:
+                # Use all indices for this label
+                selected = label_indices
+            indices.extend(selected)
+
+        # Convert to numpy array and shuffle
+        indices = np.array(indices)
+        np.random.shuffle(indices)
+
+        # Subset the data
+        x_data_subset = x_data_np[indices]
+        y_data_subset = y_data_np[indices]
+        labels_subset = labels_np[indices]
+
+        if verbose:
+            print(f"Using a subset of {len(x_data_subset)} samples for UMAP computation")
+    else:
+        x_data_subset = x_data_np
+        y_data_subset = y_data_np
+        labels_subset = labels_np
+
+    # Standardize the data
+    scaler = StandardScaler()
+    x_data_scaled = scaler.fit_transform(x_data_subset)
+
+    if verbose:
+        print(f"Data prepared, starting UMAP fitting...")
+
+    # Create and fit UMAP
+    reducer = umap.UMAP(
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        n_components=n_components,
+        metric=metric,
+        random_state=random_state,
+        verbose=verbose
+    )
+
+    umap_embedding = reducer.fit_transform(x_data_scaled)
+
+    if verbose:
+        print(f"UMAP fitting completed in {time.time() - start_time:.2f} seconds")
+
+    # Setup default label colors if not provided
+    if label_color_map is None:
+        # Preset colors for common mental stress categories
+        label_color_map = {
+            'Pasat': '#E69F00',
+            'Pasat_repeat': '#56B4E9',
+            'Raven': '#009E73',
+            'SSST_Sing_countdown': '#0072B2',
+            'TA': '#D55E00',
+            'TA_repeat': '#CC79A7',
+            'Baseline': '#999999',  # Gray for baseline
+            'Positive': '#33A02C',  # Green for generic positive class
+            'Negative': '#999999'   # Gray for generic negative class
+        }
+
+    # Create a colorblind-friendly categorical colormap for labels not in the map
+    unique_labels = np.unique(labels_subset)
+    cmap = plt.cm.get_cmap(colormap_categorical, len(unique_labels))
+    for i, label in enumerate(unique_labels):
+        if label not in label_color_map:
+            label_color_map[label] = cmap(i)
+
+    # Create the plot with publication-quality settings
+    plt.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['Arial'],
+        'font.size': 12,
+        'xtick.labelsize': 10,
+        'ytick.labelsize': 10,
+        'axes.labelsize': 14,
+        'axes.titlesize': 16,
+        'figure.titlesize': 18
+    })
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    # Create a dictionary to store points for each label
+    label_points_dict = {}
+
+    # Plot baseline points first if they should be included but with lower alpha
+    if include_baseline:
+        baseline_mask = (y_data_subset == 0)
+        if np.any(baseline_mask):
+            ax.scatter(
+                umap_embedding[baseline_mask, 0],
+                umap_embedding[baseline_mask, 1],
+                c=label_color_map.get('Baseline', '#999999'),
+                s=point_size * 0.7,  # Slightly smaller points for baseline
+                alpha=alpha_baseline,
+                edgecolors='none',
+                label='Baseline'
+            )
+
+    # Plot points for each unique label (for mental stress class)
+    for label in unique_labels:
+        # Skip baseline labels when plotting the mental stress categories
+        if label == 'Baseline' or label == 'Negative':
+            continue
+
+        mask = (labels_subset == label)
+        points = ax.scatter(
+            umap_embedding[mask, 0],
+            umap_embedding[mask, 1],
+            c=label_color_map.get(label, cmap(list(unique_labels).index(label))),
+            s=point_size,
+            alpha=alpha_main,
+            edgecolors='black' if highlight_outliers else 'none',
+            linewidths=0.5 if highlight_outliers else 0,
+            label=label.replace('_', ' ')
+        )
+
+        # Store points for this label for later labeling
+        label_points_dict[label] = {
+            'x': umap_embedding[mask, 0],
+            'y': umap_embedding[mask, 1]
+        }
+
+    # Label representative points for each cluster if requested
+    if label_points:
+        for label, points in label_points_dict.items():
+            # Find the point closest to the centroid of this cluster
+            if len(points['x']) > 0:
+                centroid_x = np.mean(points['x'])
+                centroid_y = np.mean(points['y'])
+
+                # Find index of point closest to centroid
+                distances = np.sqrt((points['x'] - centroid_x)**2 + (points['y'] - centroid_y)**2)
+                closest_idx = np.argmin(distances)
+
+                # Place text label near this point
+                ax.text(
+                    points['x'][closest_idx],
+                    points['y'][closest_idx],
+                    label.replace('_', ' '),
+                    fontsize=12,
+                    fontweight='bold',
+                    ha='center',
+                    va='center',
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.3')
+                )
+
+    # Customize the plot
+    ax.set_title(title, fontweight='bold', pad=20)
+    ax.set_xlabel('UMAP Dimension 1', fontweight='bold')
+    ax.set_ylabel('UMAP Dimension 2', fontweight='bold')
+
+    # Add grid with light alpha
+    ax.grid(True, linestyle='--', alpha=0.3)
+
+    # Customize spines
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.5)
+
+    # Create a clean, visually appealing legend
+    handles, labels = ax.get_legend_handles_labels()
+
+    # If we have many labels, place the legend outside the plot
+    if len(handles) > 5:
+        legend = ax.legend(
+            handles, labels,
+            title='Categories',
+            title_fontsize=12,
+            fontsize=10,
+            loc='center left',
+            bbox_to_anchor=(1.05, 0.5),
+            frameon=True,
+            framealpha=0.9,
+            edgecolor='lightgray'
+        )
+    else:
+        legend = ax.legend(
+            handles, labels,
+            title='Categories',
+            title_fontsize=12,
+            fontsize=10,
+            loc='best',
+            frameon=True,
+            framealpha=0.9,
+            edgecolor='lightgray'
+        )
+
+    # Add a text box with UMAP parameters
+    param_text = (
+        f"UMAP Parameters:\n"
+        f"n_neighbors: {n_neighbors}\n"
+        f"min_dist: {min_dist}\n"
+        f"metric: {metric}"
+    )
+
+    # Place the text box in the upper right corner
+    text_box = ax.text(
+        0.97, 0.97, param_text,
+        transform=ax.transAxes,
+        fontsize=8,
+        verticalalignment='top',
+        horizontalalignment='right',
+        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8, edgecolor='lightgray')
+    )
+
+    # Add a footer with computation info
+    footer_text = f"Computation time: {time.time() - start_time:.2f}s | N = {len(x_data_subset)} samples"
+    fig.text(0.5, 0.01, footer_text, ha='center', fontsize=8, style='italic')
+
+    plt.tight_layout()
+
+    # Save the figure if a path is provided
+    if save_path:
+        full_path = os.path.join(FIGURES_PATH, save_name)
+        print(f"We save here {full_path}")
+        fig.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        if verbose:
+            print(f"Visualization saved to {full_path}")
+
+    # Show the plot if requested
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    # Return the figure, axes, and embedding for further use if needed
+    return fig, ax, umap_embedding
+
+def visualize_dimensionality_reduction(
+        x_data: Union[np.ndarray, pd.DataFrame],
+        y_data: Union[np.ndarray, pd.Series],
+        labels: Union[np.ndarray, pd.Series, None] = None,
+        method: str = 'umap',  # Options: 'umap', 'tsne', 'both'
+        # UMAP parameters
+        n_neighbors: int = 30,
+        min_dist: float = 0.01,
+        # t-SNE parameters
+        perplexity: int = 40,
+        learning_rate: int = 200,
+        n_iter: int = 1000,
+        early_exaggeration: float = 12.0,
+        # Common parameters
+        n_components: int = 2,
+        metric: str = 'euclidean',
+        random_state: int = 42,
+        save_path: str = FIGURES_PATH,
+        title: str = "Dimensionality Reduction",
+        save_name: str = "visualization.png",
+        figsize: tuple = (12, 10),
+        show_plot: bool = True,
+        use_subset: bool = True,
+        subset_size: int = 500,
+        label_points: bool = False,
+        highlight_outliers: bool = True,
+        label_color_map: Optional[dict] = None,
+        colormap_categorical: str = 'tab10',
+        colormap_continuous: str = 'viridis',
+        include_baseline: bool = True,
+        merge_repeats: bool = True,
+        alpha_main: float = 0.7,
+        alpha_baseline: float = 0.2,
+        verbose: bool = True,
+        point_size: int = 40,
+        dpi: int = 300
+) -> Union[Tuple[plt.Figure, plt.Axes, np.ndarray],
+           Tuple[plt.Figure, Dict[str, plt.Axes], Dict[str, np.ndarray]]]:
+    """
+    Creates and saves visualizations using UMAP and/or t-SNE dimensionality reduction techniques.
+
+    Args:
+        x_data: Feature data for projection
+        y_data: Binary class labels (1 for mental stress, 0 for baseline/reference)
+        labels: Detailed labels for subcategories (like 'Pasat', 'TA', etc.)
+        method: Dimensionality reduction method: 'umap', 'tsne', or 'both'
+
+        # UMAP specific parameters
+        n_neighbors: UMAP hyperparameter for local neighborhood size
+        min_dist: UMAP hyperparameter for minimum distance between embedded points
+
+        # t-SNE specific parameters
+        perplexity: t-SNE hyperparameter controlling the balance of local/global structure
+        learning_rate: t-SNE hyperparameter for step size in optimization
+        n_iter: Number of iterations for t-SNE optimization
+        early_exaggeration: t-SNE hyperparameter affecting cluster separation
+
+        # Common parameters
+        n_components: Number of dimensions for output (usually 2)
+        metric: Distance metric for the algorithm
+        random_state: Random seed for reproducibility
+        save_path: Directory to save the visualization
+        title: Plot title
+        save_name: Filename for the saved figure
+        figsize: Figure dimensions (width, height) in inches
+        show_plot: Whether to display the plot
+        use_subset: If True, uses a subset of data for faster computation
+        subset_size: Maximum number of samples to use if use_subset is True
+        label_points: If True, adds text labels to representative points for each cluster
+        highlight_outliers: If True, adds a light outline to points that may be outliers
+        label_color_map: Dictionary mapping labels to specific colors
+        colormap_categorical: Colormap name for categorical data
+        colormap_continuous: Colormap name for continuous data
+        include_baseline: Whether to include baseline (class 0) samples in visualization
+        alpha_main: Opacity of main data points
+        alpha_baseline: Opacity of baseline data points
+        verbose: Whether to print progress messages
+        point_size: Size of scatter plot points
+        dpi: Resolution for saved figure
+
+    Returns:
+        If method is 'umap' or 'tsne':
+            Tuple of (figure, axes, embedding)
+        If method is 'both':
+            Tuple of (figure, {'umap': umap_axes, 'tsne': tsne_axes},
+                     {'umap': umap_embedding, 'tsne': tsne_embedding})
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    import time
+    import seaborn as sns
+    from matplotlib.patches import Patch
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.manifold import TSNE
+    import umap
+    import os
+
+    method = method.lower()
+    if method not in ['umap', 'tsne', 'both']:
+        raise ValueError("Method must be one of 'umap', 'tsne', or 'both'")
+
+    start_time = time.time()
+
+    if verbose:
+        print(f"Starting {method.upper()} visualization process...")
+
+    # Convert inputs to numpy arrays if they're pandas objects
+    if isinstance(x_data, pd.DataFrame):
+        x_data_np = x_data.values
+    else:
+        x_data_np = x_data
+
+    if isinstance(y_data, pd.Series):
+        y_data_np = y_data.values
+    else:
+        y_data_np = y_data
+
+    # Handle labels
+    if labels is not None:
+        if isinstance(labels, pd.Series):
+            labels_np = labels.values
+        else:
+            labels_np = labels
+    else:
+        # If no sublabels provided, use binary class labels
+        labels_np = np.array(['Positive' if y == 1 else 'Baseline' for y in y_data_np])
+
+    # Filter data based on include_baseline parameter
+    if merge_repeats:
+        labels_np = np.array([label.split("_")[0] for label in labels_np])
+
+    if not include_baseline:
+        mask = (y_data_np == 1)
+        x_data_np = x_data_np[mask]
+        labels_np = labels_np[mask]
+        y_data_np = y_data_np[mask]
+        if verbose:
+            print(f"Filtered out baseline data, {len(x_data_np)} samples remaining")
+
+    # Use a subset of data for faster computation if requested
+    if use_subset and len(x_data_np) > subset_size:
+        # Ensure we get a representative sample by stratifying on labels
+        unique_labels = np.unique(labels_np)
+        indices = []
+
+        samples_per_label = subset_size // len(unique_labels)
+        for label in unique_labels:
+            label_indices = np.where(labels_np == label)[0]
+            if len(label_indices) > samples_per_label:
+                # Randomly select samples_per_label indices for this label
+                selected = np.random.choice(label_indices, samples_per_label, replace=False)
+            else:
+                # Use all indices for this label
+                selected = label_indices
+            indices.extend(selected)
+
+        # Convert to numpy array and shuffle
+        indices = np.array(indices)
+        np.random.shuffle(indices)
+
+        # Subset the data
+        x_data_subset = x_data_np[indices]
+        y_data_subset = y_data_np[indices]
+        labels_subset = labels_np[indices]
+
+        if verbose:
+            print(f"Using a subset of {len(x_data_subset)} samples for computation")
+    else:
+        x_data_subset = x_data_np
+        y_data_subset = y_data_np
+        labels_subset = labels_np
+
+    # Standardize the data
+    standardize = False
+    if standardize:
+        scaler = StandardScaler()
+        x_data_scaled = scaler.fit_transform(x_data_subset)
+    else:
+        x_data_scaled = x_data_subset
+
+    # Setup default label colors if not provided
+    if label_color_map is None:
+        # Preset colors for common mental stress categories
+        label_color_map = {
+            'Pasat': '#E69F00',
+            'Pasat_repeat': '#56B4E9',
+            'Raven': '#009E73',
+            'SSST_Sing_countdown': '#0072B2',
+            'TA': '#D55E00',
+            'TA_repeat': '#CC79A7',
+            'Baseline': '#999999',  # Gray for baseline
+            'Positive': '#33A02C',  # Green for generic positive class
+            'Negative': '#999999'   # Gray for generic negative class
+        }
+
+    # Create a colorblind-friendly categorical colormap for labels not in the map
+    unique_labels = np.unique(labels_subset)
+    cmap = plt.cm.get_cmap(colormap_categorical, len(unique_labels))
+    for i, label in enumerate(unique_labels):
+        if label not in label_color_map:
+            label_color_map[label] = cmap(i)
+
+    # Create the plot with publication-quality settings
+    plt.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': ['Arial'],
+        'font.size': 12,
+        'xtick.labelsize': 10,
+        'ytick.labelsize': 10,
+        'axes.labelsize': 14,
+        'axes.titlesize': 16,
+        'figure.titlesize': 18
+    })
+
+    # Create figure and axes based on the method
+    if method == 'both':
+        fig, axs = plt.subplots(1, 2, figsize=(figsize[0] * 2, figsize[1]), dpi=dpi)
+        ax_umap, ax_tsne = axs
+        axes_dict = {'umap': ax_umap, 'tsne': ax_tsne}
+        embeddings_dict = {}
+    else:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    # Compute and plot UMAP if requested
+    if method in ['umap', 'both']:
+        if verbose:
+            print(f"Data prepared, starting UMAP fitting...")
+
+        # Create and fit UMAP
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            n_components=n_components,
+            metric=metric,
+            random_state=random_state,
+            verbose=verbose
+        )
+
+        umap_embedding = reducer.fit_transform(x_data_scaled)
+
+        if method == 'both':
+            embeddings_dict['umap'] = umap_embedding
+            current_ax = ax_umap
+            current_ax.set_title(f"UMAP Projection", fontweight='bold', pad=20)
+        else:
+            current_ax = ax
+
+        if verbose:
+            print(f"UMAP fitting completed in {time.time() - start_time:.2f} seconds")
+
+        # Plot the UMAP results
+        create_scatter_plot(
+            embedding=umap_embedding,
+            ax=current_ax,
+            y_data=y_data_subset,
+            labels=labels_subset,
+            label_color_map=label_color_map,
+            include_baseline=include_baseline,
+            alpha_main=alpha_main,
+            alpha_baseline=alpha_baseline,
+            point_size=point_size,
+            highlight_outliers=highlight_outliers,
+            label_points=label_points,
+            unique_labels=unique_labels,
+            cmap=cmap
+        )
+
+        # Add UMAP parameter info
+        if method != 'both':
+            param_text = (
+                f"UMAP Parameters:\n"
+                f"n_neighbors: {n_neighbors}\n"
+                f"min_dist: {min_dist}\n"
+                f"metric: {metric}"
+            )
+            add_parameter_textbox(current_ax, param_text)
+
+    # Compute and plot t-SNE if requested
+    if method in ['tsne', 'both']:
+        if verbose:
+            tsne_start_time = time.time()
+            print(f"Data prepared, starting t-SNE fitting...")
+
+        # Create and fit t-SNE
+        tsne = TSNE(
+            n_components=n_components,
+            perplexity=perplexity,
+            learning_rate=learning_rate,
+            n_iter=n_iter,
+            early_exaggeration=early_exaggeration,
+            metric=metric,
+            random_state=random_state,
+            verbose=1 if verbose else 0
+        )
+
+        tsne_embedding = tsne.fit_transform(x_data_scaled)
+
+        if method == 'both':
+            embeddings_dict['tsne'] = tsne_embedding
+            current_ax = ax_tsne
+            current_ax.set_title(f"t-SNE Projection", fontweight='bold', pad=20)
+        else:
+            current_ax = ax
+
+        if verbose:
+            print(f"t-SNE fitting completed in {time.time() - tsne_start_time:.2f} seconds")
+
+        # Plot the t-SNE results
+        create_scatter_plot(
+            embedding=tsne_embedding,
+            ax=current_ax,
+            y_data=y_data_subset,
+            labels=labels_subset,
+            label_color_map=label_color_map,
+            include_baseline=include_baseline,
+            alpha_main=alpha_main,
+            alpha_baseline=alpha_baseline,
+            point_size=point_size,
+            highlight_outliers=highlight_outliers,
+            label_points=label_points,
+            unique_labels=unique_labels,
+            cmap=cmap
+        )
+
+        # Add t-SNE parameter info
+        if method != 'both':
+            param_text = (
+                f"t-SNE Parameters:\n"
+                f"perplexity: {perplexity}\n"
+                f"learning_rate: {learning_rate}\n"
+                f"n_iter: {n_iter}"
+            )
+            add_parameter_textbox(current_ax, param_text)
+
+    # Set main title
+    if method == 'both':
+        plt.suptitle(title, fontweight='bold', y=0.98, fontsize=18)
+    else:
+        current_ax.set_title(title, fontweight='bold', pad=20)
+
+    # Add a footer with computation info
+    footer_text = f"Computation time: {time.time() - start_time:.2f}s | N = {len(x_data_subset)} samples"
+    fig.text(0.5, 0.01, footer_text, ha='center', fontsize=8, style='italic')
+
+    plt.tight_layout()
+
+    # Save the figure if a path is provided
+    if save_path:
+        method_prefix = method if method != 'both' else 'umap_tsne'
+        full_path = os.path.join(save_path, f"{method_prefix}_{save_name}")
+        fig.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        if verbose:
+            print(f"Visualization saved to {full_path}")
+
+    # Show the plot if requested
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    # Return the appropriate results based on method
+    if method == 'both':
+        return fig, axes_dict, embeddings_dict
+    elif method == 'umap':
+        return fig, current_ax, umap_embedding
+    else:  # method == 'tsne'
+        return fig, current_ax, tsne_embedding
+
+def create_scatter_plot(embedding, ax, y_data, labels, label_color_map,
+                        include_baseline, alpha_main, alpha_baseline,
+                        point_size, highlight_outliers, label_points,
+                        unique_labels, cmap):
+    """Helper function to create scatter plots for dimensionality reduction visualizations."""
+    # Create a dictionary to store points for each label
+    label_points_dict = {}
+
+    # Plot baseline points first if they should be included but with lower alpha
+    if include_baseline:
+        baseline_mask = (y_data == 0)
+        if np.any(baseline_mask):
+            ax.scatter(
+                embedding[baseline_mask, 0],
+                embedding[baseline_mask, 1],
+                c=label_color_map.get('Baseline', '#999999'),
+                s=point_size * 0.7,  # Slightly smaller points for baseline
+                alpha=alpha_baseline,
+                edgecolors='none',
+                label='Baseline'
+            )
+
+    # Plot points for each unique label (for mental stress class)
+    for label in unique_labels:
+        # Skip baseline labels when plotting the mental stress categories
+        if label == 'Baseline' or label == 'Negative':
+            continue
+
+        mask = (labels == label)
+        points = ax.scatter(
+            embedding[mask, 0],
+            embedding[mask, 1],
+            c=label_color_map.get(label, cmap(list(unique_labels).index(label))),
+            s=point_size,
+            alpha=alpha_main,
+            edgecolors='black' if highlight_outliers else 'none',
+            linewidths=0.5 if highlight_outliers else 0,
+            label=label.replace('_', ' ')
+        )
+
+        # Store points for this label for later labeling
+        label_points_dict[label] = {
+            'x': embedding[mask, 0],
+            'y': embedding[mask, 1]
+        }
+
+    # Label representative points for each cluster if requested
+    if label_points:
+        for label, points in label_points_dict.items():
+            # Find the point closest to the centroid of this cluster
+            if len(points['x']) > 0:
+                centroid_x = np.mean(points['x'])
+                centroid_y = np.mean(points['y'])
+
+                # Find index of point closest to centroid
+                distances = np.sqrt((points['x'] - centroid_x)**2 + (points['y'] - centroid_y)**2)
+                closest_idx = np.argmin(distances)
+
+                # Place text label near this point
+                ax.text(
+                    points['x'][closest_idx],
+                    points['y'][closest_idx],
+                    label.replace('_', ' '),
+                    fontsize=12,
+                    fontweight='bold',
+                    ha='center',
+                    va='center',
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.3')
+                )
+
+    # Customize the plot
+    ax.set_xlabel('Dimension 1', fontweight='bold')
+    ax.set_ylabel('Dimension 2', fontweight='bold')
+
+    # Add grid with light alpha
+    ax.grid(True, linestyle='--', alpha=0.3)
+
+    # Customize spines
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.5)
+
+    # Create a clean, visually appealing legend
+    handles, labels = ax.get_legend_handles_labels()
+
+    # If we have many labels, place the legend outside the plot
+    if len(handles) > 5:
+        legend = ax.legend(
+            handles, labels,
+            title='Categories',
+            title_fontsize=12,
+            fontsize=10,
+            loc='center left',
+            bbox_to_anchor=(1.05, 0.5),
+            frameon=True,
+            framealpha=0.9,
+            edgecolor='lightgray'
+        )
+    else:
+        legend = ax.legend(
+            handles, labels,
+            title='Categories',
+            title_fontsize=12,
+            fontsize=10,
+            loc='best',
+            frameon=True,
+            framealpha=0.9,
+            edgecolor='lightgray'
+        )
+
+def add_parameter_textbox(ax, param_text):
+    """Helper function to add parameter info textbox to the plot."""
+    # Place the text box in the upper right corner
+    ax.text(
+        0.97, 0.97, param_text,
+        transform=ax.transAxes,
+        fontsize=8,
+        verticalalignment='top',
+        horizontalalignment='right',
+        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8, edgecolor='lightgray')
+    )
+
+# For backward compatibility
+def visualize_umap_clusters(
+        x_data: Union[np.ndarray, pd.DataFrame],
+        y_data: Union[np.ndarray, pd.Series],
+        labels: Union[np.ndarray, pd.Series, None] = None,
+        n_neighbors: int = 30,
+        min_dist: float = 0.01,
+        n_components: int = 2,
+        metric: str = 'euclidean',
+        random_state: int = 42,
+        save_path: str = None,
+        title: str = "UMAP Projection of Data",
+        save_name: str = "umap_visualization.png",
+        figsize: tuple = (12, 10),
+        show_plot: bool = True,
+        use_subset: bool = True,
+        subset_size: int = 500,
+        label_points: bool = False,
+        highlight_outliers: bool = True,
+        label_color_map: Optional[dict] = None,
+        colormap_categorical: str = 'tab10',
+        colormap_continuous: str = 'viridis',
+        include_baseline: bool = True,
+        alpha_main: float = 0.7,
+        alpha_baseline: float = 0.2,
+        verbose: bool = True,
+        point_size: int = 40,
+        dpi: int = 300
+) -> Tuple[plt.Figure, plt.Axes, np.ndarray]:
+    """
+    Legacy function that calls visualize_dimensionality_reduction with UMAP method.
+    Maintained for backward compatibility.
+    """
+    return visualize_dimensionality_reduction(
+        x_data=x_data,
+        y_data=y_data,
+        labels=labels,
+        method='umap',
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        n_components=n_components,
+        metric=metric,
+        random_state=random_state,
+        save_path=save_path,
+        title=title,
+        save_name=save_name,
+        figsize=figsize,
+        show_plot=show_plot,
+        use_subset=use_subset,
+        subset_size=subset_size,
+        label_points=label_points,
+        highlight_outliers=highlight_outliers,
+        label_color_map=label_color_map,
+        colormap_categorical=colormap_categorical,
+        colormap_continuous=colormap_continuous,
+        include_baseline=include_baseline,
+        alpha_main=alpha_main,
+        alpha_baseline=alpha_baseline,
+        verbose=verbose,
+        point_size=point_size,
+        dpi=dpi
+    )
+
