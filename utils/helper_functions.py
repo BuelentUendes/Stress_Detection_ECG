@@ -557,6 +557,7 @@ class ECGDataset:
                        save_path: Optional[str] = None,
                        save_name: Optional[str] = None,
                        show_plot=True,
+                       show_baseline=True,
                        plot_subcategory: Optional[bool] = False,
                        category_to_plot: Optional[str] = "mental_stress") -> None:
         """
@@ -574,16 +575,35 @@ class ECGDataset:
         plt.figure(figsize=(10, 6))
 
         # Define colors and categories
-        colors = {
-            'black': '#000000',
-            'orange': '#E69F00',
-            'baseline': '#56B4E9',
-            'low_physical_activity': '#009E73',
-            'moderate_physical_activity': '#F0E442',
-            'blue': '#0072B2',
-            'mental_stress': '#D55E00',
-            'high_physical_activity': '#CC79A7'
-        }
+        # old one
+        if show_baseline:
+            colors = {
+                'black': '#000000',
+                'orange': '#E69F00',
+                'Sitting and recovery': '#000000',
+                'low_physical_activity': '#009E73',
+                'moderate_physical_activity': '#F0E442',
+                'blue': '#0072B2',
+                'mental_stress': '#0072B2',
+                'high_physical_activity': '#d84315',
+                'Sitting': '#9d9d9d',
+            }
+
+        else:
+            colors = {
+                'black': '#000000',
+                'orange': '#E69F00',
+                'low_physical_activity': '#009E73',
+                'moderate_physical_activity': '#F0E442',
+                'blue': '#0072B2',
+                'mental_stress': '#0072B2',
+                'high_physical_activity': '#d84315',
+                'Sitting': '#9d9d9d',
+            }
+
+
+        # Silver color palette
+        # https: // www.color - hex.com / color - palette / 1057579
 
         if plot_subcategory:
             label_data = self.total_data[self.total_data["category"]==category_to_plot][[column, "label"]]
@@ -600,7 +620,7 @@ class ECGDataset:
                              density=use_density)
 
             # Customize the plot
-            plt.xlabel(f"{column}")
+            plt.xlabel(f"{x_label}")
             plt.ylabel('Probability Density') if use_density else plt.ylabel('Count')
             plt.legend()
 
@@ -609,7 +629,7 @@ class ECGDataset:
                 if save_name is not None:
                     save_path = os.path.join(save_path, f"{save_name}_label.png")
                 else:
-                    save_path = os.path.join(save_path, f"histogram_{column}_label.png")
+                    save_path = os.path.join(save_path, f"histogram_{x_label}_label.png")
 
                 plt.savefig(save_path, dpi=500, bbox_inches='tight')
                 plt.close()
@@ -619,12 +639,18 @@ class ECGDataset:
 
         # Plot histograms for each category
         for category, color in colors.items():
-            category_data = self.total_data[self.total_data['category'] == category][column]
+            if category == "Sitting and recovery":
+                category_name = "baseline"
+                category_data = self.total_data[(self.total_data['category'] == category_name) | (self.total_data["label"] == category_name)][column]
+            else:
+                category_data = \
+                self.total_data[(self.total_data['category'] == category) | (self.total_data["label"] == category)][
+                    column]
             if not category_data.empty:
                 sns.kdeplot(category_data, color=color, label=category.replace('_', ' ').title(), fill=True, alpha=0.6)
 
         # Customize the plot
-        plt.xlabel(column.replace('_', ' ').title())
+        plt.xlabel(x_label)
         plt.ylabel('Density' if use_density else 'Frequency')
         plt.legend()
 
@@ -633,7 +659,7 @@ class ECGDataset:
             if save_name is not None:
                 save_path = os.path.join(save_path, f"{save_name}.png")
             else:
-                save_path = os.path.join(save_path, f"histogram_{column}.png")
+                save_path = os.path.join(save_path, f"histogram_{column}_baseline_included_{show_baseline}.png")
 
             plt.savefig(save_path, dpi=500, bbox_inches='tight')
             plt.close()
@@ -893,6 +919,135 @@ def resample_data(data: pd.DataFrame,
 
     return balanced_data
 
+
+# def balance_sublabels(data: pd.DataFrame, positive_class: str, balance_sublabels_method: str = "downsample",
+#                       random_state: int = 42) -> pd.DataFrame:
+#     """
+#     Balances different labels within the positive class to ensure equal representation of each of the labels.
+#
+#     Args:
+#         data: DataFrame containing the data
+#         positive_class: The category name that represents the positive class
+#         balance_sublabels_method: Method to use for balancing - "downsample", "upsample", or "smote"
+#         random_state: Random seed for reproducibility
+#
+#     Returns:
+#         DataFrame with balanced sublabels within the positive class
+#     """
+#     # Create a controlled random state for reproducibility
+#     rng = np.random.RandomState(random_state)
+#
+#     # Get only the positive class data
+#     positive_data = data[data['category'] == positive_class].copy()
+#     # Get the negative class data (we'll keep this unchanged)
+#     negative_data = data[data['category'] != positive_class].copy()
+#
+#     # Count occurrences of each label in the positive class
+#     label_counts = positive_data['label'].value_counts()
+#
+#     if balance_sublabels_method in ["downsample", "upsample"]:
+#         # Determine target count based on method
+#         if balance_sublabels_method == "upsample":
+#             target_count = label_counts.max()
+#         else:  # downsample
+#             target_count = label_counts.min()
+#
+#         # Resample each sublabel
+#         balanced_positive_data = pd.DataFrame()
+#
+#         # Sort labels to ensure consistent processing order
+#         for label in sorted(label_counts.index):
+#             count = label_counts[label]
+#             label_data = positive_data[positive_data['label'] == label]
+#
+#             if count == target_count:
+#                 # No resampling needed
+#                 resampled_data = label_data
+#             elif count < target_count:
+#                 # Upsample using RandomState
+#                 # Sort to ensure deterministic behavior before sampling
+#                 sorted_label_data = label_data.sort_values(by=label_data.columns.tolist()).reset_index(drop=True)
+#
+#                 # Generate indices with replacement
+#                 indices = rng.choice(len(sorted_label_data), size=target_count, replace=True)
+#                 resampled_data = sorted_label_data.iloc[indices].reset_index(drop=True)
+#             else:
+#                 # Downsample using RandomState
+#                 # Sort to ensure deterministic behavior before sampling
+#                 sorted_label_data = label_data.sort_values(by=label_data.columns.tolist()).reset_index(drop=True)
+#
+#                 # Generate indices without replacement
+#                 indices = rng.choice(len(sorted_label_data), size=target_count, replace=False)
+#                 resampled_data = sorted_label_data.iloc[indices].reset_index(drop=True)
+#
+#             balanced_positive_data = pd.concat([balanced_positive_data, resampled_data])
+#
+#     elif balance_sublabels_method == "smote":
+#         from imblearn.over_sampling import SMOTE
+#
+#         # Get all feature columns (excluding 'category' and 'label')
+#         feature_cols = [col for col in positive_data.columns if col not in ['category', 'label']]
+#
+#         # Dictionary to store resampled data for each label
+#         balanced_positive_dict = {}
+#
+#         # Process each label separately - sort labels to ensure consistent order
+#         for label in sorted(label_counts.index):
+#             # Binary encoding for current label (1 for current label, 0 for other labels)
+#             label_binary = (positive_data['label'] == label).astype(int)
+#
+#             # Sort data to ensure consistent ordering before SMOTE
+#             sorted_indices = np.argsort(positive_data.index).tolist()
+#             sorted_features = positive_data.iloc[sorted_indices][feature_cols]
+#             sorted_binary = label_binary.iloc[sorted_indices]
+#
+#             # Apply SMOTE with the specific random_state
+#             smote = SMOTE(random_state=random_state)
+#             X_resampled, y_resampled = smote.fit_resample(sorted_features, sorted_binary)
+#
+#             # Get indices of the resampled current label samples
+#             current_label_indices = y_resampled == 1
+#
+#             # Create a temporary dataframe with the resampled data
+#             temp_df = pd.DataFrame(X_resampled[current_label_indices], columns=feature_cols)
+#             temp_df['label'] = label
+#             temp_df['category'] = positive_class
+#
+#             # Store in dictionary
+#             balanced_positive_dict[label] = temp_df
+#
+#         # Combine all resampled labels
+#         balanced_positive_data = pd.concat(balanced_positive_dict.values())
+#
+#     else:
+#         raise ValueError("balance_sublabels_method must be one of 'downsample', 'upsample', or 'smote'")
+#
+#     # Combine balanced positive data with the negative data
+#     balanced_data = pd.concat([balanced_positive_data, negative_data])
+#
+#     # Check if it worked:
+#     label_counts_check = balanced_positive_data['label'].value_counts()
+#
+#     if balance_sublabels_method in ["downsample", "upsample"]:
+#         # For resampling, all labels should have exactly the target count
+#         assert all(count == target_count for count in label_counts_check), \
+#             f"Sublabel balancing failed. Expected all labels to have {target_count} samples, but got: {label_counts_check}"
+#     elif balance_sublabels_method == "smote":
+#         # For SMOTE, all labels should have similar but not necessarily identical counts
+#         mean_count = label_counts_check.mean()
+#         tolerance = 0.1 * mean_count  # Allow 10% deviation
+#         assert all(abs(count - mean_count) <= tolerance for count in label_counts_check), \
+#             f"SMOTE balancing failed. Expected all labels to have approximately {mean_count} samples, but got: {label_counts_check}"
+#
+#     # Use the same RandomState for final shuffling
+#     # First sort to ensure deterministic behavior
+#     balanced_data = balanced_data.sort_values(by=balanced_data.columns.tolist()).reset_index(drop=True)
+#
+#     # Then shuffle using RandomState
+#     shuffle_indices = rng.permutation(len(balanced_data))
+#     balanced_data = balanced_data.iloc[shuffle_indices].reset_index(drop=True)
+#
+#     return balanced_data
 
 def analyze_feature_distributions(df: pd.DataFrame, alpha: float = 0.05):
     """
@@ -1245,6 +1400,8 @@ def prepare_data(train_data: pd.DataFrame,
     # First, if requested, balance the sublabels within the positive class
     if balance_positive_sublabels:
         print(f"Balancing sublabels within positive class '{positive_class}' using {balance_sublabels_method} method")
+        # train_data = balance_sublabels(train_data, positive_class, balance_sublabels_method)
+
         upsample = balance_sublabels_method.lower() == "upsample"
         train_data = balance_sublabels(train_data, positive_class, upsample)
 
@@ -1514,7 +1671,8 @@ def get_data_balance(train_data:np.array, val_data: np.array, test_data: np.arra
     return data_balance
 
 
-def get_idx_per_subcategory(y_data, label, positive_class=True, include_other_class=True):
+def get_idx_per_subcategory(y_data, label, positive_class=True, include_other_class=True,
+                            random_seed: Optional[int]=42):
 
     combined_df = pd.concat([y_data, label], axis=1)
     class_1 = len(y_data[y_data == 1.0])
@@ -1531,13 +1689,17 @@ def get_idx_per_subcategory(y_data, label, positive_class=True, include_other_cl
     idx_per_subcategory = {}
 
     for category in subcategories:
-        idx_values = list(label_df[label_df["label"]==category].index.values)
+        # Create a controlled random state using the seed
+        rng = np.random.RandomState(random_seed)
+        idx_values = list(label_df[label_df["label"] == category].index.values)
         # we need to sample len(x) (1-ratio) / ratio(1) to get the same ratio 1/0
         if include_other_class:
-            sampled_negative_class = np.random.choice(
-                other_class_idx, replace=False, size=int(((1-ratio_1) * len(idx_values))/ratio_1)
-            )
+            # Use the controlled random state for sampling
+            sampled_negative_class = sorted(rng.choice(
+                other_class_idx, replace=False, size=int(((1 - ratio_1) * len(idx_values)) / ratio_1)
+            ))
             idx_values.extend(list(sampled_negative_class))
+
         idx_per_subcategory[category] = idx_values
 
     return idx_per_subcategory
@@ -2543,7 +2705,7 @@ def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = 
         f"Sublabel balancing failed. Expected all labels to have {target_count} samples, but got: {label_counts_check}"
 
     # Shuffle the final dataset
-    balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
+    # balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
 
     return balanced_data
 
