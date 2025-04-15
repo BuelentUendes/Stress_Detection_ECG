@@ -52,6 +52,9 @@ LABEL_ABBREVIATION_DICT = {
     "rest": "REST",
     "any_physical_activity": "ANY_PHY",
     "non_physical_activity": "NON_PHY",
+    "standing": "STANDING",
+    "walking_own_pace": "WALKING",
+    "low_moderate_physical_activity": "LP_MPA",
 }
 
 
@@ -222,6 +225,7 @@ def get_save_name(study_name: str,
                   use_default_values: bool,
                   use_feature_selection: bool,
                   use_feature_subset: bool,
+                  feature_subset: list[str],
                   top_k_features: int,
                   bootstrap: bool,
                   subcategories: bool,
@@ -247,10 +251,10 @@ def get_save_name(study_name: str,
     middle = "DEFAULT_" if use_default_values else ""
     suffix = "_feature_selection" if use_feature_selection else ""
     if use_feature_subset and not random_subset:
-        suffix_2 = f"_subset_features_{str(top_k_features)}" if use_feature_subset else ""
+        suffix_2 = f"_subset_features_{len(feature_subset)}" if use_feature_subset else ""
 
     elif use_top_features:
-        suffix_2 = f"_subset_features_{str(top_k_features)}"
+        suffix_2 = f"_subset_features_top_{str(top_k_features)}"
 
     elif use_feature_subset and random_subset:
         suffix_2 = "_subset_features_random"
@@ -419,24 +423,28 @@ def main(args):
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
                                                   reference=reference, heart_measure="hr_mean",
                                                   show_plot=False)
+        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
+                                                  reference=reference, heart_measure="hr_min",
+                                                  show_plot=False)
+        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
+                                                  reference=reference, heart_measure="hrv_std",
+                                                  show_plot=False)
 
-        ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
+    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
+    ecg_dataset.plot_histogram(column="hrv_mean", x_label="Mean heart rate variability", save_path=figures_path_hist,
+                               show_plot=False)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
         train_data_feature_selection, val_data_feature_selection = ecg_dataset.get_feature_selection_data()
 
         train_data_feature_selection, val_data_feature_selection, feature_names = prepare_data(
-            train_data_feature_selection,
-            val_data_feature_selection,
-            positive_class=args.positive_class,
-            negative_class=args.negative_class,
-            resampling_method=args.resampling_method,
+            train_data_feature_selection, val_data_feature_selection, positive_class=args.positive_class,
+            negative_class=args.negative_class, resampling_method=args.resampling_method,
             balance_positive_sublabels=args.balance_positive_sublabels,
-            balance_sublabels_method=args.balance_sublabels_method,
+            balance_sublabels_method = args.balance_sublabels_method,
             scaler=args.standard_scaler,
-            use_quantile_transformer=args.use_quantile_transformer,
-        )
+            use_quantile_transformer=args.use_quantile_transformer)
 
         # Create base estimator
         base_estimator = get_ml_model(args.model_type, {})  # Basic model for feature selection
@@ -481,23 +489,19 @@ def main(args):
         val_data = get_subset_feature_df(val_data, feature_subset=args.feature_subset)
         test_data = get_subset_feature_df(test_data, feature_subset=args.feature_subset)
 
-    train_data, val_data, test_data, feature_names = prepare_data(
-        train_data,
-        val_data,
-        test_data,
-        positive_class=args.positive_class,
-        negative_class=args.negative_class,
-        resampling_method=args.resampling_method,
-        balance_positive_sublabels=args.balance_positive_sublabels,
-        balance_sublabels_method=args.balance_sublabels_method,
-        scaler=args.standard_scaler,
-        use_quantile_transformer = args.use_quantile_transformer,
-        use_subset=selected_features if args.use_feature_selection else None,
-        save_path=figures_path_feature_plots,
-        save_feature_plots=args.save_feature_plots,
-        leave_one_out=args.leave_one_out,
-        leave_out_stressor_name=args.leave_out_stressor_name
-    )
+    train_data, val_data, test_data, feature_names = prepare_data(train_data, val_data, test_data,
+                                                                  positive_class=args.positive_class,
+                                                                  negative_class=args.negative_class,
+                                                                  resampling_method=args.resampling_method,
+                                                                  balance_positive_sublabels=args.balance_positive_sublabels,
+                                                                  balance_sublabels_method=args.balance_sublabels_method,
+                                                                  scaler=args.standard_scaler,
+                                                                  use_quantile_transformer=args.use_quantile_transformer,
+                                                                  use_subset=selected_features if args.use_feature_selection else None,
+                                                                  save_path=figures_path_feature_plots,
+                                                                  save_feature_plots=args.save_feature_plots,
+                                                                  leave_one_out=args.leave_one_out,
+                                                                  leave_out_stressor_name=args.leave_out_stressor_name)
 
     # Setup for hyperparameter optimization
     study_name = f"{args.resampling_method}_{args.model_type.lower()}"
@@ -530,6 +534,7 @@ def main(args):
             use_default_values=args.use_default_values, 
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
+            feature_subset=args.feature_subset,
             top_k_features=args.top_k_features,
             use_top_features=args.use_top_features,
             bootstrap=False,
@@ -566,6 +571,7 @@ def main(args):
             use_default_values=args.use_default_values,
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
+            feature_subset = args.feature_subset,
             top_k_features=args.top_k_features,
             use_top_features=args.use_top_features,
             bootstrap=True,
@@ -583,6 +589,7 @@ def main(args):
                 use_default_values=args.use_default_values,
                 use_feature_selection=args.use_feature_selection,
                 use_feature_subset=args.use_feature_subset,
+                feature_subset=args.feature_subset,
                 top_k_features=args.top_k_features,
                 use_top_features=args.use_top_features,
                 bootstrap=True,
@@ -680,7 +687,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1",
-                        default="low_physical_activity",
+                        default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
                         default="baseline",
@@ -733,13 +740,13 @@ if __name__ == "__main__":
     parser.add_argument("--feature_subset",
                         help="What feature subset to use. Only used when 'use_feature_subset' is set to true",
                         type=validate_feature_subset,
-                        default="hr_mean")
+                        default="w,wmax,nn20,nn50")
     parser.add_argument("--use_top_features",
                         help="If set, we use the top features that were selected 100% of the time during feature selection",
                         action="store_true")
     parser.add_argument("--top_k_features",
                         help="If use top features is set, how many features we want to select.",
-                        default=5, type=int)
+                        default=3, type=int)
     parser.add_argument("--use_random_subset_features",
                         help="If set, we use a random subset of features.",
                         action="store_true")
@@ -771,7 +778,7 @@ if __name__ == "__main__":
                         choices=("ta", "pasat", "raven", "ssst","none"), default=None, type=str)
     parser.add_argument("--balance_positive_sublabels", action="store_true",
                         help="If we want to have equal proportions in the training set of positive label.")
-    parser.add_argument("--balance_sublabels_method", choices=("downsample", "upsample"),
+    parser.add_argument("--balance_sublabels_method", choices=("downsample", "upsample", "smote"),
                         help="What method to use for the sublabel balancing.", type=str,
                         default="downsample")
 
@@ -781,13 +788,19 @@ if __name__ == "__main__":
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
     args.add_calibration_plots = True
-    # args.use_feature_subset = True
+    args.use_feature_subset = False
     # args.use_top_features = True
     args.do_hyperparameter_tuning = True
     args.get_model_explanations = True
     # args.save_feature_plots = True
     # Set seed for reproducibility
 
+    # args.min_features = 3
+    # args.max_features = 3
+    # args.use_feature_selection = True
+    # args.use_top_features = True
+
+    # args.balance_positive_sublabels = True
     set_seed(args.seed)
 
     main(args)

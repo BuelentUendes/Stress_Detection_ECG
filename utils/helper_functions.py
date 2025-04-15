@@ -771,6 +771,23 @@ def encode_data(
             data.loc[:, 'category'] = data['category'].apply(
                 lambda x: 1 if x == positive_class else 0)  # Encode classes
 
+    elif (negative_class == "low_moderate_physical_activity") or (positive_class == "low_moderate_physical_activity"):
+        possible_physical_activities =  ["low_physical_activity", "moderate_physical_activity"]
+
+        if negative_class == "low_moderate_physical_activity":
+            data = data[
+                (data['category'] == positive_class) | (data['category'].isin(possible_physical_activities))]  # Filter relevant classes
+        else:
+            data = data[
+                (data['category'] == negative_class) | (data['category'].isin(possible_physical_activities))]
+
+        # Then label the data 1 for positive and 0 for negative
+        if positive_class == "low_moderate_physical_activity":
+            data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x in possible_physical_activities else 0)  # Encode classes
+        else:
+            data.loc[:, 'category'] = data['category'].apply(
+                lambda x: 1 if x == positive_class else 0)  # Encode classes
+
     elif negative_class == "rest":
         # By rest we mean everything without high physical_activity
         data = data[(data["category"] != "high_physical_activity")]
@@ -2684,10 +2701,12 @@ def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = 
             )
         else:
             # Downsample
+            # We know that TA and Pasat each has a repeat condition, so actually we should divide their numbers by 2
+            # so if they are summed up, they are in equal proportions or leave on of the two out.
             resampled_data = resample(
                 label_data,
                 replace=False,
-                n_samples=target_count,
+                n_samples=int(target_count/2) if label.lower() != "raven" else target_count,
                 random_state=42
             )
 
@@ -2699,13 +2718,8 @@ def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = 
     # Check if it worked:
     label_counts_check = balanced_positive_data['label'].value_counts()
 
-    # Add some assertion statement here:
-    # Add some assertion statement here:
-    assert all(count == target_count for count in label_counts_check), \
-        f"Sublabel balancing failed. Expected all labels to have {target_count} samples, but got: {label_counts_check}"
-
     # Shuffle the final dataset
-    # balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
+    balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
 
     return balanced_data
 
