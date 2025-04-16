@@ -14,7 +14,7 @@ def validate_feature_subset(value: str) -> str:
 def validate_category(value: str) -> str:
     valid_categories = ['high_physical_activity', 'mental_stress', 'baseline', 'non_physical_activity',
                         'low_physical_activity', 'moderate_physical_activity', 'rest', 'any_physical_activity',
-                        'low_moderate_physical_activity', 'standing', 'walking_own_pace']
+                        'low_moderate_physical_activity', 'standing', 'walking_own_pace', 'ssst', 'raven']
     if value.lower() not in valid_categories:
         raise argparse.ArgumentTypeError(f"Invalid choice: {value}. "
                                          f"Choose from options in {valid_categories}.")
