@@ -89,6 +89,18 @@ def get_data_folders(input_path: str) -> list[str]:
     return data_folders
 
 
+def report_nans(df, name="data"):
+    # count NaNs in each column
+    nan_counts = df.isna().sum()
+    # keep only columns where count > 0
+    cols_with_nans = nan_counts[nan_counts > 0]
+    if not cols_with_nans.empty:
+        print(f"Columns in {name} with NaNs:")
+        print(cols_with_nans)
+    else:
+        print(f"No NaNs in {name}.")
+
+
 class ECGDataset:
     """
     Feature engineered dataset for the ECG dataset
@@ -522,15 +534,15 @@ class ECGDataset:
                            edgecolor='lightgray',
                            fontsize=11)
 
-        # Add descriptive text about the calculation method
-        if (reference.lower() == "sitting") or (reference.lower() == "standing"):
-            if reference.lower() == "standing" and not exclude_recovery:
-                reference = "standing (and recovery standing)"
-            fig.text(0.5, 0.01, f"{label_plot} reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during {reference.lower()} baseline",
-                     ha='center', fontsize=10, fontstyle='italic')
-        else:
-            fig.text(0.5, 0.01, f"HRV reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during baseline (sitting + recovery sitting)",
-                     ha='center', fontsize=10, fontstyle='italic')
+        # Add descriptive text about the calculation method (we should not use this)
+        # if (reference.lower() == "sitting") or (reference.lower() == "standing"):
+        #     if reference.lower() == "standing" and not exclude_recovery:
+        #         reference = "standing (and recovery standing)"
+        #     fig.text(0.5, 0.01, f"{label_plot} reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during {reference.lower()} baseline",
+        #              ha='center', fontsize=10, fontstyle='italic')
+        # else:
+        #     fig.text(0.5, 0.01, f"HRV reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during baseline (sitting + recovery sitting)",
+        #              ha='center', fontsize=10, fontstyle='italic')
 
         # Adjust layout to make room for the legend
         plt.tight_layout(rect=[0, 0.03, 0.85, 1])
@@ -745,6 +757,7 @@ def encode_data(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # First drop data that is not either in the positive class or negative class
 
+    positive_single_classes = ["ssst", "raven", "ta", "pasat", "pasat_repeat", "ta_repeat"]
     # Special case for any_physical_activity vs non_physical_activity
     if positive_class == "any_physical_activity" and negative_class == "non_physical_activity":
         possible_physical_activities = ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
@@ -753,6 +766,15 @@ def encode_data(
         # Encode as 1 for any physical activity and 0 for everything else
         data.loc[:, 'category'] = data['category'].apply(
             lambda x: 1 if x in possible_physical_activities else 0)  # Encode classes
+
+    # Check the condition of SSST as positive label
+    elif positive_class in positive_single_classes:
+        data = data[
+            (data.label.str.lower().str.startswith(positive_class)) |
+            (data['category'] == negative_class)
+            ]
+
+        data.loc[:, 'category'] = data['category'].apply(lambda x: 0 if x == negative_class else 1)  # Encode classes
 
     elif (negative_class == "any_physical_activity") or (positive_class == "any_physical_activity"):
         possible_physical_activities =  ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
@@ -766,6 +788,23 @@ def encode_data(
 
         # Then label the data 1 for positive and 0 for negative
         if positive_class == "any_physical_activity":
+            data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x in possible_physical_activities else 0)  # Encode classes
+        else:
+            data.loc[:, 'category'] = data['category'].apply(
+                lambda x: 1 if x == positive_class else 0)  # Encode classes
+
+    elif (negative_class == "base_lpa_mpa") or (positive_class == "base_lpa_mpa"):
+        possible_physical_activities =  ["baseline", "low_physical_activity", "moderate_physical_activity"]
+
+        if negative_class == "base_lpa_mpa":
+            data = data[
+                (data['category'] == positive_class) | (data['category'].isin(possible_physical_activities))]  # Filter relevant classes
+        else:
+            data = data[
+                (data['category'] == negative_class) | (data['category'].isin(possible_physical_activities))]
+
+        # Then label the data 1 for positive and 0 for negative
+        if positive_class == "base_lpa_mpa":
             data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x in possible_physical_activities else 0)  # Encode classes
         else:
             data.loc[:, 'category'] = data['category'].apply(
@@ -936,135 +975,6 @@ def resample_data(data: pd.DataFrame,
 
     return balanced_data
 
-
-# def balance_sublabels(data: pd.DataFrame, positive_class: str, balance_sublabels_method: str = "downsample",
-#                       random_state: int = 42) -> pd.DataFrame:
-#     """
-#     Balances different labels within the positive class to ensure equal representation of each of the labels.
-#
-#     Args:
-#         data: DataFrame containing the data
-#         positive_class: The category name that represents the positive class
-#         balance_sublabels_method: Method to use for balancing - "downsample", "upsample", or "smote"
-#         random_state: Random seed for reproducibility
-#
-#     Returns:
-#         DataFrame with balanced sublabels within the positive class
-#     """
-#     # Create a controlled random state for reproducibility
-#     rng = np.random.RandomState(random_state)
-#
-#     # Get only the positive class data
-#     positive_data = data[data['category'] == positive_class].copy()
-#     # Get the negative class data (we'll keep this unchanged)
-#     negative_data = data[data['category'] != positive_class].copy()
-#
-#     # Count occurrences of each label in the positive class
-#     label_counts = positive_data['label'].value_counts()
-#
-#     if balance_sublabels_method in ["downsample", "upsample"]:
-#         # Determine target count based on method
-#         if balance_sublabels_method == "upsample":
-#             target_count = label_counts.max()
-#         else:  # downsample
-#             target_count = label_counts.min()
-#
-#         # Resample each sublabel
-#         balanced_positive_data = pd.DataFrame()
-#
-#         # Sort labels to ensure consistent processing order
-#         for label in sorted(label_counts.index):
-#             count = label_counts[label]
-#             label_data = positive_data[positive_data['label'] == label]
-#
-#             if count == target_count:
-#                 # No resampling needed
-#                 resampled_data = label_data
-#             elif count < target_count:
-#                 # Upsample using RandomState
-#                 # Sort to ensure deterministic behavior before sampling
-#                 sorted_label_data = label_data.sort_values(by=label_data.columns.tolist()).reset_index(drop=True)
-#
-#                 # Generate indices with replacement
-#                 indices = rng.choice(len(sorted_label_data), size=target_count, replace=True)
-#                 resampled_data = sorted_label_data.iloc[indices].reset_index(drop=True)
-#             else:
-#                 # Downsample using RandomState
-#                 # Sort to ensure deterministic behavior before sampling
-#                 sorted_label_data = label_data.sort_values(by=label_data.columns.tolist()).reset_index(drop=True)
-#
-#                 # Generate indices without replacement
-#                 indices = rng.choice(len(sorted_label_data), size=target_count, replace=False)
-#                 resampled_data = sorted_label_data.iloc[indices].reset_index(drop=True)
-#
-#             balanced_positive_data = pd.concat([balanced_positive_data, resampled_data])
-#
-#     elif balance_sublabels_method == "smote":
-#         from imblearn.over_sampling import SMOTE
-#
-#         # Get all feature columns (excluding 'category' and 'label')
-#         feature_cols = [col for col in positive_data.columns if col not in ['category', 'label']]
-#
-#         # Dictionary to store resampled data for each label
-#         balanced_positive_dict = {}
-#
-#         # Process each label separately - sort labels to ensure consistent order
-#         for label in sorted(label_counts.index):
-#             # Binary encoding for current label (1 for current label, 0 for other labels)
-#             label_binary = (positive_data['label'] == label).astype(int)
-#
-#             # Sort data to ensure consistent ordering before SMOTE
-#             sorted_indices = np.argsort(positive_data.index).tolist()
-#             sorted_features = positive_data.iloc[sorted_indices][feature_cols]
-#             sorted_binary = label_binary.iloc[sorted_indices]
-#
-#             # Apply SMOTE with the specific random_state
-#             smote = SMOTE(random_state=random_state)
-#             X_resampled, y_resampled = smote.fit_resample(sorted_features, sorted_binary)
-#
-#             # Get indices of the resampled current label samples
-#             current_label_indices = y_resampled == 1
-#
-#             # Create a temporary dataframe with the resampled data
-#             temp_df = pd.DataFrame(X_resampled[current_label_indices], columns=feature_cols)
-#             temp_df['label'] = label
-#             temp_df['category'] = positive_class
-#
-#             # Store in dictionary
-#             balanced_positive_dict[label] = temp_df
-#
-#         # Combine all resampled labels
-#         balanced_positive_data = pd.concat(balanced_positive_dict.values())
-#
-#     else:
-#         raise ValueError("balance_sublabels_method must be one of 'downsample', 'upsample', or 'smote'")
-#
-#     # Combine balanced positive data with the negative data
-#     balanced_data = pd.concat([balanced_positive_data, negative_data])
-#
-#     # Check if it worked:
-#     label_counts_check = balanced_positive_data['label'].value_counts()
-#
-#     if balance_sublabels_method in ["downsample", "upsample"]:
-#         # For resampling, all labels should have exactly the target count
-#         assert all(count == target_count for count in label_counts_check), \
-#             f"Sublabel balancing failed. Expected all labels to have {target_count} samples, but got: {label_counts_check}"
-#     elif balance_sublabels_method == "smote":
-#         # For SMOTE, all labels should have similar but not necessarily identical counts
-#         mean_count = label_counts_check.mean()
-#         tolerance = 0.1 * mean_count  # Allow 10% deviation
-#         assert all(abs(count - mean_count) <= tolerance for count in label_counts_check), \
-#             f"SMOTE balancing failed. Expected all labels to have approximately {mean_count} samples, but got: {label_counts_check}"
-#
-#     # Use the same RandomState for final shuffling
-#     # First sort to ensure deterministic behavior
-#     balanced_data = balanced_data.sort_values(by=balanced_data.columns.tolist()).reset_index(drop=True)
-#
-#     # Then shuffle using RandomState
-#     shuffle_indices = rng.permutation(len(balanced_data))
-#     balanced_data = balanced_data.iloc[shuffle_indices].reset_index(drop=True)
-#
-#     return balanced_data
 
 def analyze_feature_distributions(df: pd.DataFrame, alpha: float = 0.05):
     """
@@ -1385,6 +1295,20 @@ def prepare_data(train_data: pd.DataFrame,
             Tuple of ((X_train, y_train, label_train), (X_val, y_val, label_val), feature_names)
     """
     # Old code
+
+    try:
+        overall_label_distribution = train_data['category'].value_counts().to_dict()
+
+        for key, value in val_data['category'].value_counts().to_dict().items():
+            overall_label_distribution[key] += value
+
+        for key, value in test_data['category'].value_counts().to_dict().items():
+            overall_label_distribution[key] += value
+
+        print(f" The overall label distribution is {overall_label_distribution}")
+    except TypeError:
+        overall_label_distribution = 0
+
     assert imputation_method in ["drop", "knn", "knn_subset", "iterative_imputer"], \
         "Please use as imputation method either 'knn', 'drop' or 'knn_subset'."
 
@@ -1533,6 +1457,12 @@ def prepare_data(train_data: pd.DataFrame,
 
     # Here we should use the KNN imputer then
     if imputation_method in ["knn", "iterative_imputer"]:
+
+        if overall_label_distribution != 0:
+            report_nans(x_train, "train")
+            report_nans(x_val, "validation")
+            report_nans(x_test, "test")
+
         imputer = KNNImputer(n_neighbors=5, copy=False) if imputation_method == "knn" else IterativeImputer(max_iter=10, random_state=0)
 
         imputer.fit(x_train)
@@ -1709,11 +1639,18 @@ def get_idx_per_subcategory(y_data, label, positive_class=True, include_other_cl
         # Create a controlled random state using the seed
         rng = np.random.RandomState(random_seed)
         idx_values = list(label_df[label_df["label"] == category].index.values)
+        replace_arg = False
         # we need to sample len(x) (1-ratio) / ratio(1) to get the same ratio 1/0
         if include_other_class:
             # Use the controlled random state for sampling
+            size = int(((1 - ratio_1) * len(idx_values)) / ratio_1)
+            # If we have only one subcategory we run into issues as then the sample is too small
+            if (len(subcategories)) == 1 and size > len(other_class_idx):
+                replace_arg = True
+                size = len(other_class_idx)
+
             sampled_negative_class = sorted(rng.choice(
-                other_class_idx, replace=False, size=int(((1 - ratio_1) * len(idx_values)) / ratio_1)
+                other_class_idx, replace=replace_arg, size=size
             ))
             idx_values.extend(list(sampled_negative_class))
 
