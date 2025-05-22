@@ -2020,7 +2020,8 @@ def bootstrap_test_performance(
 
     # Calculate confidence intervals and means
     final_results = get_confidence_interval_mean(results, bootstrap_method)
-    final_results_in_distribution = get_confidence_interval_mean(results_in_distribution, bootstrap_method)
+    if leave_one_out:
+        final_results_in_distribution = get_confidence_interval_mean(results_in_distribution, bootstrap_method)
 
     if bootstrap_subcategories:
         final_results_subcategories = {}
