@@ -55,6 +55,13 @@ LABEL_ABBREVIATION_DICT = {
     "standing": "STANDING",
     "walking_own_pace": "WALKING",
     "low_moderate_physical_activity": "LP_MPA",
+    "base_lpa_mpa": "BASE_LPA_MPA",
+    "ssst": "SSST",
+    "raven": "RAVEN",
+    "ta": "TA",
+    "pasat": "PASAT",
+    "pasat_repeat": "PASAT_REPEAT",
+    "ta_repeat": "TA_REPEAT",
 }
 
 
@@ -167,11 +174,13 @@ def objective(trial: Trial,
         val_score = metrics.balanced_accuracy_score(val_data[1], val_pred)
     elif metric == "roc_auc":
         val_score = metrics.roc_auc_score(val_data[1], model.predict_proba(val_data[0])[:, 1])
+    #ToDo:
+    # Include here also the pr_auc score
 
     return val_score
 
-
 def load_best_params(file_path: str, file_name:str) -> dict[str, Any]:
+    print(f"we found the model in {file_path}, {file_name}")
     try:
         with open(os.path.join(file_path, file_name)) as file:
             print(f"We found optimized parameter configurations and load it")
@@ -276,7 +285,7 @@ def optimize_hyperparameters(
     val_data: tuple,
     study_name: str,
     results_path_history: str,
-    use_default_values: bool = False,
+    use_default_values: bool = True,
     do_within_comparison: bool = False,
     do_hyperparameter_tuning: bool = False,
     n_trials: int = 5,
@@ -337,12 +346,13 @@ def optimize_hyperparameters(
 
         return study.best_params    
 
-    if use_default_values:
+    elif use_default_values:
         print("We use the default hyperparameter values")
         return {}
 
-    print(f"We load the best parameter set")
-    return load_best_params(results_path_history, f"{study_name}_optimization_history.json")
+    else:
+        print(f"We load the best parameter set")
+        return load_best_params(results_path_history, f"{study_name}_optimization_history.json")
 
 
 def get_subset_feature_df(df: pd.DataFrame, feature_subset: list[str]) -> pd.DataFrame:
@@ -413,7 +423,7 @@ def main(args):
 
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
 
-    if args.negative_class in ["baseline", "low_physical_activity"]:
+    if args.negative_class in ["baseline", "low_physical_activity"] and args.positive_class not in ["low_physical_activity", "moderate_physical_activity", "high_physical_activity", "any_physical_activity"]:
         reference = "Sitting" if args.negative_class == "baseline" else "Standing"
         # We plot the reference HR reactivity only always against the true negative reference class sitting
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
@@ -554,16 +564,18 @@ def main(args):
 
     if args.bootstrap_test_results:
         set_seed(args.seed)
-        final_bootstrapped_results, final_bootstrapped_results_subcategories = bootstrap_test_performance(
+        final_bootstrapped_results = bootstrap_test_performance(
             best_model,
             test_data,
             args.bootstrap_samples,
             args.bootstrap_method,
             evaluation_results["f1_score_threshold"],
-            args.bootstrap_subcategories
+            args.bootstrap_subcategories,
+            args.leave_one_out,
+            args.leave_out_stressor_name,
         )
         if args.verbose:
-            print(final_bootstrapped_results)
+            print(final_bootstrapped_results[0])
 
         save_name_overall=get_save_name(
             study_name,
@@ -580,7 +592,7 @@ def main(args):
         )
 
         with open(os.path.join(results_path_bootstrap_performance, save_name_overall), "w") as f:
-            json.dump(final_bootstrapped_results, f, indent=4)
+            json.dump(final_bootstrapped_results[0], f, indent=4)
 
         if args.bootstrap_subcategories:
             save_name_subcategories = get_save_name(
@@ -598,8 +610,11 @@ def main(args):
             )
 
             with open(os.path.join(results_path_bootstrap_performance, save_name_subcategories), "w") as f:
-                json.dump(final_bootstrapped_results_subcategories, f, indent=4)
+                json.dump(final_bootstrapped_results[0], f, indent=4)
 
+        if args.leave_one_out:
+            with open(os.path.join(results_path_bootstrap_performance, f"{save_name_overall}_held_out.json"), "w") as f:
+                json.dump(final_bootstrapped_results[2], f, indent=4)
 
     if args.add_calibration_plots and not args.do_within_comparison and not args.use_default_values:
         # Get class 1 probability
@@ -690,7 +705,7 @@ if __name__ == "__main__":
                         default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
-                        default="baseline",
+                        default="base_lpa_mpa",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
@@ -735,7 +750,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_features", type=int, default=50,
                        help="Maximum number of features to select")
     parser.add_argument("--use_feature_subset",
-                        help="instead of using full set of features, use only a subset of features defined in args.subset",
+                        help="instead of using full set of features, use only a subset of features "
+                             "defined in args.subset",
                         action="store_true")
     parser.add_argument("--feature_subset",
                         help="What feature subset to use. Only used when 'use_feature_subset' is set to true",
@@ -795,6 +811,7 @@ if __name__ == "__main__":
     # args.save_feature_plots = True
     # Set seed for reproducibility
 
+    args.resampling_method = "smote"
     # args.min_features = 3
     # args.max_features = 3
     # args.use_feature_selection = True
