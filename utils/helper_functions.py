@@ -770,7 +770,7 @@ def encode_data(
     # Check the condition of SSST as positive label
     elif positive_class in positive_single_classes:
         data = data[
-            (data.label.str.lower().str.startswith(positive_class)) |
+            (data.label.str.lower() == positive_class) |
             (data['category'] == negative_class)
             ]
 
@@ -1899,7 +1899,11 @@ def bootstrap_test_performance(
         bootstrap_samples: int,
         bootstrap_method: str,
         f1_score_threshold: float,
-        bootstrap_subcategories: bool = True
+        bootstrap_subcategories: bool = True,
+        leave_one_out: bool = False,
+        leave_out_stressor_name: str = "ssst",
+
+
 ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, dict[str, float]]] | None]:
     """
     Performs bootstrap resampling to estimate model performance metrics and their confidence intervals.
@@ -1916,6 +1920,9 @@ def bootstrap_test_performance(
         bootstrap_samples: int, number of bootstrap iterations (default: 1000)
         bootstrap_method: str, which method to use for bootstrap samples.
         f1_score_threshold: float: Threshold to determine the positive class
+        bootstrap_subcategories: bool: If we bootstrap also each subcategory
+        leave_one_out: bool: If we leave a stressor out
+        leave_out_stressor_name: str, name of the left-out-stressor
 
     Returns:
         dict: Dictionary containing performance metrics and their confidence intervals:
@@ -1929,12 +1936,33 @@ def bootstrap_test_performance(
     X_test, y_test, label_test = test_data
 
     # Initialize results dictionary
+    # These results include all stressors. So if I have the left-out mental stressor,
+    # Then the evaluation also includes the one that was left-out, which potentially drives the results down
+    # Actually, I should have a proper left out evalation, where I only evaluate on the stressors that the model
+    # has seen during training!
     results = {
         'roc_auc': [],
         'pr_auc': [],
         'balanced_accuracy': [],
         'f1_score': [],
     }
+
+    if leave_one_out:
+        # In distributin refers to the performance regarding only known stressors
+        results_in_distribution = {
+            'roc_auc': [],
+            'pr_auc': [],
+            'balanced_accuracy': [],
+            'f1_score': [],
+        }
+
+        # Boolean mask: labels that DO NOT start with "ssst" (case-insensitive)
+        mask = ~label_test.str.lower().str.startswith(leave_out_stressor_name)
+
+        # Apply the mask to each component
+        X_test_left = X_test[mask]
+        y_test_left = y_test[mask]
+        label_test_left = label_test[mask]
 
     if bootstrap_subcategories:
         idx_per_subcategory = get_idx_per_subcategory(y_test, label_test, positive_class=True, include_other_class=True)
@@ -1960,6 +1988,17 @@ def bootstrap_test_performance(
         results['balanced_accuracy'].append(balanced_accuracy_score)
         results['f1_score'].append(f1_score)
 
+        if leave_one_out:
+            X_bootstrap_left, y_bootstrap_left = get_resampled_data(X_test_left, y_test_left, seed=idx)
+            # Get predictions
+            roc_auc, pr_auc, balanced_accuracy_score, f1_score = get_performance_metric_bootstrapped(
+                model, X_bootstrap_left, y_bootstrap_left, f1_score_threshold)
+
+            results_in_distribution['roc_auc'].append(roc_auc)
+            results_in_distribution['pr_auc'].append(pr_auc)
+            results_in_distribution['balanced_accuracy'].append(balanced_accuracy_score)
+            results_in_distribution['f1_score'].append(f1_score)
+
         if bootstrap_subcategories:
             for category, idx_category in idx_per_subcategory.items():
                 # Get the subcategory data
@@ -1981,6 +2020,7 @@ def bootstrap_test_performance(
 
     # Calculate confidence intervals and means
     final_results = get_confidence_interval_mean(results, bootstrap_method)
+    final_results_in_distribution = get_confidence_interval_mean(results_in_distribution, bootstrap_method)
 
     if bootstrap_subcategories:
         final_results_subcategories = {}
@@ -1988,7 +2028,8 @@ def bootstrap_test_performance(
         for category, results_category in subcategory_results.items():
             final_results_subcategories[category] = get_confidence_interval_mean(results_category, bootstrap_method)
 
-    return final_results, final_results_subcategories if bootstrap_subcategories else None
+    return (final_results, final_results_subcategories if bootstrap_subcategories else None,
+            final_results_in_distribution if leave_one_out else None)
 
 
 def load_yaml_config_file(path_to_yaml_file: str):
