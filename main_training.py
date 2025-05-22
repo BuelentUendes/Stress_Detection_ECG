@@ -610,7 +610,7 @@ def main(args):
             )
 
             with open(os.path.join(results_path_bootstrap_performance, save_name_subcategories), "w") as f:
-                json.dump(final_bootstrapped_results[0], f, indent=4)
+                json.dump(final_bootstrapped_results[1], f, indent=4)
 
         if args.leave_one_out:
             with open(os.path.join(results_path_bootstrap_performance, f"{save_name_overall}_held_out.json"), "w") as f:
@@ -783,7 +783,7 @@ if __name__ == "__main__":
                         help="If set, we get model explanations using SHAP")
     parser.add_argument("--get_cohens_kappa", action="store_true",
                         help="If set, we calculate the cohens kappa to get the agreement.")
-    parser.add_argument("--model_comparisons", default="lr,rf,xgboost",
+    parser.add_argument("--model_comparisons", default="lr,xgboost",
                         help="For which models we want to get the cohens kappa scores.")
     parser.add_argument("--save_feature_plots", action="store_true",
                         help="If we want to show the distribution of the feature plots. "
@@ -791,7 +791,8 @@ if __name__ == "__main__":
     parser.add_argument("--leave_one_out", action="store_true",
                         help="We will train and validate without a stressor")
     parser.add_argument("--leave_out_stressor_name", help="Which stressor to leave out",
-                        choices=("ta", "pasat", "raven", "ssst","none"), default=None, type=str)
+                        choices=("ta", "pasat", "raven", "ssst","none", "ta_repeat", "pasat_repeat"),
+                        default=None, type=str)
     parser.add_argument("--balance_positive_sublabels", action="store_true",
                         help="If we want to have equal proportions in the training set of positive label.")
     parser.add_argument("--balance_sublabels_method", choices=("downsample", "upsample", "smote"),
