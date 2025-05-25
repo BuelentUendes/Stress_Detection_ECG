@@ -5,6 +5,8 @@ import random
 import json
 import yaml
 from typing import Optional, Tuple, Union, Any
+
+from mne.simulation.metrics import recall_score
 from scipy import stats
 import torch
 from torchmetrics.functional.classification import binary_calibration_error
@@ -748,6 +750,7 @@ class ECGDataset:
         return self.train_data, self.val_data, self.test_data
 
 
+#ToDo: Really refactor this code!
 def encode_data(
         data: pd.DataFrame,
         positive_class: str,
@@ -756,6 +759,9 @@ def encode_data(
         leave_out_stressor_name: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # First drop data that is not either in the positive class or negative class
+    # How can make all labels lower case and rename ssst
+    data["label"] = data["label"].str.lower()
+    data["label"] = data["label"].str.replace('ssst_sing_countdown', 'ssst', regex=False)
 
     positive_single_classes = ["ssst", "raven", "ta", "pasat", "pasat_repeat", "ta_repeat"]
     # Special case for any_physical_activity vs non_physical_activity
@@ -767,14 +773,25 @@ def encode_data(
         data.loc[:, 'category'] = data['category'].apply(
             lambda x: 1 if x in possible_physical_activities else 0)  # Encode classes
 
-    # Check the condition of SSST as positive label
-    elif positive_class in positive_single_classes:
-        data = data[
-            (data.label.str.lower() == positive_class) |
-            (data['category'] == negative_class)
-            ]
+    elif positive_class in positive_single_classes and not leave_one_out:
+        if negative_class == "base_lpa_mpa":
+            possible_physical_activities = ["baseline", "low_physical_activity", "moderate_physical_activity"]
 
-        data.loc[:, 'category'] = data['category'].apply(lambda x: 0 if x == negative_class else 1)  # Encode classes
+            data = data[
+                (data['label'] == positive_class) |
+                (data['category'].isin(possible_physical_activities))
+                ]
+
+            data.loc[:, 'category'] = data['category'].apply(
+                lambda x: 0 if x in possible_physical_activities else 1)  # Encode classes
+
+        else:
+            data = data[
+                (data['label'] == positive_class) |
+                (data['category'] == negative_class)
+                ]
+
+            data.loc[:, 'category'] = data['category'].apply(lambda x: 0 if x == negative_class else 1)  # Encode classes
 
     elif (negative_class == "any_physical_activity") or (positive_class == "any_physical_activity"):
         possible_physical_activities =  ["low_physical_activity", "moderate_physical_activity", "high_physical_activity"]
@@ -1659,41 +1676,54 @@ def get_idx_per_subcategory(y_data, label, positive_class=True, include_other_cl
     return idx_per_subcategory
 
 
-def evaluate_ml_model_f1_score(
+def evaluate_ml_model_score(
         ml_model: BaseEstimator,
         data: tuple[np.ndarray, np.ndarray],
-        threshold: float
+        threshold: float,
+        score:str="f1",
 ):
 
     # Get the predicted probabilities
     predicted_proba = ml_model.predict_proba(data[0])[:, 1]
     predicted_classes = np.where(predicted_proba >= threshold, 1.0, 0.0)
 
+    if score == "f1":
     # Get the f1 score now
-    f1_score_at_threshold = np.round(
-        metrics.f1_score(data[1], predicted_classes), 4
-    )
+        score_at_threshold = np.round(
+            metrics.f1_score(data[1], predicted_classes), 4
+        )
+    elif score == "precision":
+    # Get the precision score
+        score_at_threshold = np.round(
+            metrics.precision_score(data[1], predicted_classes), 4
+        )
 
-    return f1_score_at_threshold
+    elif score == "recall":
+    # Get the recall score
+        score_at_threshold = np.round(
+            metrics.recall_score(data[1], predicted_classes), 4
+        )
 
+    return score_at_threshold
 
-def find_best_threshold_f1_score(ml_model: BaseEstimator,
+def find_best_threshold_score(ml_model: BaseEstimator,
                                  val_data: tuple[np.ndarray, np.ndarray],
                                  min_threshold: float = 0.3,
                                  max_threshold: float = 1.0,
-                                 step_size: float = 0.025
+                                 step_size: float = 0.025,
+                                 score: str="f1",
                                  ):
 
     thresholds_to_test = np.arange(min_threshold, max_threshold, step_size)
 
-    f1_performance_various_thresholds = {
-        threshold: evaluate_ml_model_f1_score(ml_model, val_data, threshold=threshold) for
+    model_performance_various_thresholds = {
+        threshold: evaluate_ml_model_score(ml_model, val_data, threshold=threshold, score=score) for
         threshold in thresholds_to_test
     }
 
     best_threshold_performance_pair = (min_threshold, 0.0)
 
-    for threshold, performance in f1_performance_various_thresholds.items():
+    for threshold, performance in model_performance_various_thresholds.items():
         if performance > best_threshold_performance_pair[1]:
             best_threshold_performance_pair = (threshold, performance)
 
@@ -1706,7 +1736,7 @@ def evaluate_classifier(ml_model: BaseEstimator,
                         test_data: Optional[tuple[np.ndarray, np.ndarray]] = None,
                         save_path: str = None,
                         save_name: str = None,
-                        verbose: bool = False) -> dict[str, float]:
+                        verbose: bool = True) -> dict[str, float]:
     """
     Evaluates the trained machine learning model and gets the performance metrics
     :param ml_model: scikit-learn model
@@ -1736,20 +1766,55 @@ def evaluate_classifier(ml_model: BaseEstimator,
     }
 
     # Find best threshold for F1 score:
-    best_val_threshold_f1_score = find_best_threshold_f1_score(
+    best_val_threshold_f1_score = find_best_threshold_score(
         ml_model,
         val_data,
         min_threshold= 0.1,
         max_threshold = 1.0,
-        step_size= 0.01
+        step_size= 0.01,
+        score="f1",
+    )
+
+    best_val_threshold_precision_score = find_best_threshold_score(
+        ml_model,
+        val_data,
+        min_threshold= 0.1,
+        max_threshold = 1.0,
+        step_size= 0.01,
+        score="precision",
+    )
+
+    best_val_threshold_recall_score = find_best_threshold_score(
+        ml_model,
+        val_data,
+        min_threshold= 0.1,
+        max_threshold = 1.0,
+        step_size= 0.01,
+        score="recall",
     )
 
     results["f1_score_threshold"] = best_val_threshold_f1_score
-    results["val_f1_score"] = evaluate_ml_model_f1_score(
-        ml_model, val_data, threshold=best_val_threshold_f1_score
+    results["val_f1_score"] = evaluate_ml_model_score(
+        ml_model, val_data, threshold=best_val_threshold_f1_score, score="f1",
     )
-    results["test_f1_score"] = evaluate_ml_model_f1_score(
-        ml_model, test_data, threshold=best_val_threshold_f1_score
+    results["test_f1_score"] = evaluate_ml_model_score(
+        ml_model, test_data, threshold=best_val_threshold_f1_score, score="f1",
+    )
+
+    results["precision_score_threshold"] = best_val_threshold_precision_score
+    results["val_precision_score"] = evaluate_ml_model_score(
+        ml_model, val_data, threshold=best_val_threshold_precision_score, score="precision",
+    )
+    results["test_precision_score"] = evaluate_ml_model_score(
+        ml_model, test_data, threshold=best_val_threshold_precision_score, score="precision",
+    )
+
+    results["recall_score_threshold"] = best_val_threshold_recall_score
+    results["val_recall_score"] = evaluate_ml_model_score(
+        ml_model, val_data, threshold=best_val_threshold_recall_score, score="recall",
+    )
+    results["test_recall_score"] = evaluate_ml_model_score(
+        ml_model, test_data, threshold=best_val_threshold_recall_score, score="recall",
     )
 
     # Binary classification
@@ -1865,9 +1930,15 @@ def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap, f1_thre
     roc_auc = metrics.roc_auc_score(y_bootstrap, y_pred_proba)
     pr_auc = metrics.average_precision_score(y_bootstrap, y_pred_proba)
     balanced_accuracy = metrics.balanced_accuracy_score(y_bootstrap, y_pred)
-    f1_score = evaluate_ml_model_f1_score(
-        model, (X_bootstrap, y_bootstrap), threshold=f1_threshold,
+    f1_score = evaluate_ml_model_score(
+        model, (X_bootstrap, y_bootstrap), threshold=f1_threshold, score="f1",
 )
+    # Evaluate best precision
+
+    # Evaluate best recall curve
+
+    precision_score = metrics.precision_score(y_bootstrap, y_pred)
+    recall_score = metrics.recall_score(y_bootstrap, y_pred)
 
     return roc_auc, pr_auc, balanced_accuracy, f1_score
 
@@ -1938,7 +2009,7 @@ def bootstrap_test_performance(
     # Initialize results dictionary
     # These results include all stressors. So if I have the left-out mental stressor,
     # Then the evaluation also includes the one that was left-out, which potentially drives the results down
-    # Actually, I should have a proper left out evalation, where I only evaluate on the stressors that the model
+    # Actually, I should have a proper left out evaluation, where I only evaluate on the stressors that the model
     # has seen during training!
     results = {
         'roc_auc': [],

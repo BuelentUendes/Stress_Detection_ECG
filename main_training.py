@@ -158,7 +158,7 @@ def objective(trial: Trial,
 
     elif model_type.lower() == "random_baseline":
         params = {
-            "strategy": "prior"
+            "strategy": "most_frequent"
         }
 
     else:
@@ -405,7 +405,10 @@ def main(args):
         results_path_history = os.path.join(results_path_root, "history")
         results_path_feature_selection = os.path.join(results_path_root, "feature_selection")
         results_path_bootstrap_performance = os.path.join(results_path_root, "bootstrap_test")
+        results_path_bootstrap_train_performance = os.path.join(results_path_root, "bootstrap_train")
+        results_path_bootstrap_val_performance = os.path.join(results_path_root, "bootstrap_val")
         results_path_model_weights = os.path.join(results_path_root, "best_model_weights")
+
 
     # Figures path
     figures_path_hist = os.path.join(FIGURES_PATH, str(args.sample_frequency), str(args.window_size), comparison)
@@ -417,6 +420,8 @@ def main(args):
     create_directory(results_path_history)
     create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
+    create_directory(results_path_bootstrap_train_performance)
+    create_directory(results_path_bootstrap_val_performance)
     create_directory(figures_path_root)
     create_directory(figures_path_feature_plots)
     create_directory(results_path_model_weights)
@@ -559,7 +564,10 @@ def main(args):
         pickle.dump(best_model, f)
 
     with open(os.path.join(results_path_model_weights, f"classification_threshold_{args.resampling_method}.json"), "w") as f:
-        classification_threshold = {"classification_threshold": evaluation_results["f1_score_threshold"]}
+        classification_threshold = {"classification_threshold f1": evaluation_results["f1_score_threshold"],
+                                    "classification_threshold precision:": evaluation_results["precision_score_threshold"],
+                                    "classification_threshold recall": evaluation_results["recall_score_threshold"]}
+
         json.dump(classification_threshold, f)
 
     if args.bootstrap_test_results:
@@ -574,6 +582,32 @@ def main(args):
             args.leave_one_out,
             args.leave_out_stressor_name,
         )
+
+        #ToDo: Refactor this code:
+        set_seed(args.seed)
+        final_bootstrapped_results_train = bootstrap_test_performance(
+            best_model,
+            train_data,
+            args.bootstrap_samples,
+            args.bootstrap_method,
+            evaluation_results["f1_score_threshold"],
+            False,
+            args.leave_one_out,
+            args.leave_out_stressor_name,
+        )
+
+        set_seed(args.seed)
+        final_bootstrapped_results_val = bootstrap_test_performance(
+            best_model,
+            val_data,
+            args.bootstrap_samples,
+            args.bootstrap_method,
+            evaluation_results["f1_score_threshold"],
+            False,
+            args.leave_one_out,
+            args.leave_out_stressor_name,
+        )
+
         if args.verbose:
             print(final_bootstrapped_results[0])
 
@@ -591,8 +625,12 @@ def main(args):
             random_subset=args.use_random_subset_features,
         )
 
-        with open(os.path.join(results_path_bootstrap_performance, save_name_overall), "w") as f:
-            json.dump(final_bootstrapped_results[0], f, indent=4)
+        #ToDo: Refactor this as well!
+        with open(os.path.join(results_path_bootstrap_train_performance, save_name_overall), "w") as f:
+            json.dump(final_bootstrapped_results_train[0], f, indent=4)
+
+        with open(os.path.join(results_path_bootstrap_val_performance, save_name_overall), "w") as f:
+            json.dump(final_bootstrapped_results_val[0], f, indent=4)
 
         if args.bootstrap_subcategories:
             save_name_subcategories = get_save_name(
@@ -633,7 +671,6 @@ def main(args):
 
         save_name = os.path.join(figures_path_root, f"{save_name_feature_coefficients}.png")
         plot_feature_importance(lr_coefficients, num_features=10, figsize=(10, 7), save_path=save_name)
-
 
     # XAI now only for between person
     if args.get_model_explanations:
@@ -702,7 +739,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1",
-                        default="mental_stress",
+                        default="ssst",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
                         default="base_lpa_mpa",
@@ -812,7 +849,7 @@ if __name__ == "__main__":
     # args.save_feature_plots = True
     # Set seed for reproducibility
 
-    args.resampling_method = "smote"
+    # args.resampling_method = "smote"
     # args.min_features = 3
     # args.max_features = 3
     # args.use_feature_selection = True
