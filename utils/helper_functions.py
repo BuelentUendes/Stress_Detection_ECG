@@ -1933,14 +1933,12 @@ def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap, f1_thre
     f1_score = evaluate_ml_model_score(
         model, (X_bootstrap, y_bootstrap), threshold=f1_threshold, score="f1",
 )
-    # Evaluate best precision
-
-    # Evaluate best recall curve
+    accuracy = metrics.accuracy_score(y_bootstrap, y_pred)
 
     precision_score = metrics.precision_score(y_bootstrap, y_pred)
     recall_score = metrics.recall_score(y_bootstrap, y_pred)
 
-    return roc_auc, pr_auc, balanced_accuracy, f1_score
+    return roc_auc, pr_auc, balanced_accuracy, f1_score, accuracy
 
 
 def get_confidence_interval_mean(results: dict, bootstrap_method: str) -> dict:
@@ -2016,6 +2014,7 @@ def bootstrap_test_performance(
         'pr_auc': [],
         'balanced_accuracy': [],
         'f1_score': [],
+        'accuracy': [],
     }
 
     if leave_one_out:
@@ -2025,6 +2024,7 @@ def bootstrap_test_performance(
             'pr_auc': [],
             'balanced_accuracy': [],
             'f1_score': [],
+            'accuracy': [],
         }
 
         # Boolean mask: labels that DO NOT start with "ssst" (case-insensitive)
@@ -2044,31 +2044,36 @@ def bootstrap_test_performance(
                 'pr_auc': [],
                 'balanced_accuracy': [],
                 'f1_score': [],
+                'accuracy': [],
             }
             for category in idx_per_subcategory.keys()
         }
 
     for idx in range(bootstrap_samples):
         X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+
         # Get predictions
-        roc_auc, pr_auc, balanced_accuracy_score, f1_score = get_performance_metric_bootstrapped(
+        roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
             model, X_bootstrap, y_bootstrap, f1_score_threshold)
 
         results['roc_auc'].append(roc_auc)
         results['pr_auc'].append(pr_auc)
         results['balanced_accuracy'].append(balanced_accuracy_score)
         results['f1_score'].append(f1_score)
+        results['accuracy'].append(accuracy)
 
         if leave_one_out:
             X_bootstrap_left, y_bootstrap_left = get_resampled_data(X_test_left, y_test_left, seed=idx)
+
             # Get predictions
-            roc_auc, pr_auc, balanced_accuracy_score, f1_score = get_performance_metric_bootstrapped(
+            roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
                 model, X_bootstrap_left, y_bootstrap_left, f1_score_threshold)
 
             results_in_distribution['roc_auc'].append(roc_auc)
             results_in_distribution['pr_auc'].append(pr_auc)
             results_in_distribution['balanced_accuracy'].append(balanced_accuracy_score)
             results_in_distribution['f1_score'].append(f1_score)
+            results_in_distribution['accuracy'].append(accuracy)
 
         if bootstrap_subcategories:
             for category, idx_category in idx_per_subcategory.items():
@@ -2080,14 +2085,14 @@ def bootstrap_test_performance(
                 X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory, seed=idx)
 
                 # Get predictions
-                roc_auc, pr_auc, balanced_accuracy_score, f1_score = get_performance_metric_bootstrapped(
+                roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
                     model, X_bootstrap, y_bootstrap, f1_score_threshold)
 
                 subcategory_results[category]['roc_auc'].append(roc_auc)
                 subcategory_results[category]['pr_auc'].append(pr_auc)
                 subcategory_results[category]['balanced_accuracy'].append(balanced_accuracy_score)
                 subcategory_results[category]['f1_score'].append(f1_score)
-
+                subcategory_results[category]['accuracy'].append(accuracy)
 
     # Calculate confidence intervals and means
     final_results = get_confidence_interval_mean(results, bootstrap_method)
