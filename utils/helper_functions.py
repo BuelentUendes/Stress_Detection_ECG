@@ -382,7 +382,7 @@ class ECGDataset:
         # Set publication-quality plot aesthetics
         sns.set_style("ticks")  # Use ticks instead of whitegrid
         plt.rcParams.update({
-            'font.family': 'Arial',
+            'font.family': 'Times New Roman',
             'font.size': 12,
             'axes.linewidth': 1.5,
             'xtick.major.width': 1.5,
@@ -401,7 +401,7 @@ class ECGDataset:
             'TA_repeat': '#CC79A7'
         }
 
-        fig, ax = plt.subplots(figsize=(10, 7))
+        fig, ax = plt.subplots(figsize=(8, 6))
         # Remove top and right spines
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -423,12 +423,17 @@ class ECGDataset:
             fliersize=4,
             linewidth=1.0,
             ax=ax,
-            boxprops={'facecolor': 'none', 'edgecolor': 'none'},  # Remove box fill and border
+            # boxprops={'facecolor': 'none', 'edgecolor': 'none'},  # Remove box fill and border
             whiskerprops={'color': 'black', 'linestyle': '-'},
             capprops={'color': 'black'},
             medianprops={'color': 'black', 'linewidth': 1.5},
             showfliers=False,
         )
+
+        # Apply alpha to boxes manually
+        for patch in boxplot.patches:
+            facecolor = patch.get_facecolor()
+            patch.set_facecolor((*facecolor[:3], 0.6))
 
         # Add individual data points as gray points
         sns.stripplot(
@@ -436,11 +441,11 @@ class ECGDataset:
             y='hrv_reactivity',
             data=plot_data,
             order=ordered_labels,
-            color='gray',
-            size=3.5,
-            alpha=0.5,
+            color='darkgray',
+            size=2,
+            alpha=0.9,
             jitter=True,
-            dodge=True,
+            dodge=False,
             ax=ax
         )
 
@@ -478,8 +483,8 @@ class ECGDataset:
         label_plot =  heart_measure.split("_")[0].upper()
 
         # Customize the plot appearance
-        ax.set_xlabel('Task', fontsize=14, fontweight='bold')
-        ax.set_ylabel(f'{label_plot} Reactivity\n(Δ from baseline)', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Experimental Condition', fontsize=14)
+        ax.set_ylabel(f'{label_plot} Reactivity\n(Δ from baseline)', fontsize=14)
 
         # Improve x-tick labels for readability
         plt.xticks(rotation=45, ha='right')
@@ -497,7 +502,6 @@ class ECGDataset:
 
         # Create a clean, professional legend - import required modules
         import matplotlib.lines as mlines
-        from matplotlib.patches import Patch
 
         # Create legend items with better formatting
         legend_items = []
@@ -507,13 +511,13 @@ class ECGDataset:
 
         # Add main elements
         legend_items.append(mlines.Line2D([], [], color='red', linestyle="--",
-                                          lw=1.5, alpha=0.7, label=f'{label_plot} reactivity threshold'))
+                                          lw=1.5, alpha=0.7, label=f'{label_plot} Reactivity Threshold'))
         legend_items.append(
             mlines.Line2D([], [], marker='D', color='white', markerfacecolor='black', markersize=8, label='Mean'))
         legend_items.append(mlines.Line2D([], [], marker='_', color='black', lw=1.5, markersize=10, label='Median'))
         legend_items.append(
-            mlines.Line2D([], [], marker='o', color='white', markerfacecolor='gray', alpha=0.4, markersize=6,
-                          label='Individual data points'))
+            mlines.Line2D([], [], marker='o', color='white', markerfacecolor='darkgray', alpha=0.9, markersize=6,
+                          label='Individual Data Points'))
 
         # Add significance section
         legend_items.append(mlines.Line2D([], [], color='white', marker='', linestyle='', label=' '))
@@ -531,33 +535,18 @@ class ECGDataset:
         legend = ax.legend(handles=legend_items,
                            loc='upper left',
                            bbox_to_anchor=(1.05, 1),
-                           frameon=True,
+                           frameon=False,
                            framealpha=0.9,
                            edgecolor='lightgray',
-                           fontsize=11)
+                           fontsize=12)
 
-        # Add descriptive text about the calculation method (we should not use this)
-        # if (reference.lower() == "sitting") or (reference.lower() == "standing"):
-        #     if reference.lower() == "standing" and not exclude_recovery:
-        #         reference = "standing (and recovery standing)"
-        #     fig.text(0.5, 0.01, f"{label_plot} reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during {reference.lower()} baseline",
-        #              ha='center', fontsize=10, fontstyle='italic')
-        # else:
-        #     fig.text(0.5, 0.01, f"HRV reactivity calculated as mean {label_plot} during experimental task minus mean {label_plot} during baseline (sitting + recovery sitting)",
-        #              ha='center', fontsize=10, fontstyle='italic')
-
-        # Adjust layout to make room for the legend
+        # # Adjust layout to make room for the legend
         plt.tight_layout(rect=[0, 0.03, 0.85, 1])
 
         # Save the figure with high resolution
         save_path = os.path.join(save_path,
                                  f"boxplot_heart_rate_variability_reactivity_label_measure_{heart_measure}_reference_{reference}.png")
-        plt.savefig(save_path, dpi=600, bbox_inches='tight', format='png')
-
-        # Also save as vector format for journal publication
-        # vector_save_path = os.path.join(save_path,
-        #                                 f"boxplot_heart_rate_variability_reactivity_label_measure_{heart_measure}_reference_{reference}.pdf")
-        # plt.savefig(vector_save_path, bbox_inches='tight', format='pdf')
+        plt.savefig(save_path, dpi=500, bbox_inches='tight', format='png')
 
         if show_plot:
             plt.show()
@@ -586,7 +575,20 @@ class ECGDataset:
             plot_subcategory: Optional: If set, we plot the subcategory labels
             category_to_plot: Optional: Which category to focus on when plotting labels
         """
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(8, 4))
+
+        plt.rcParams.update({
+            'font.size': 14,
+            'font.family': 'Times New Roman',
+            'axes.labelsize': 14,
+            'axes.titlesize': 12,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            'legend.fontsize': 12,
+            'legend.frameon': False,
+            'legend.edgecolor': 'black',
+            'figure.dpi': 500,
+        })
 
         # Define colors and categories
         # old one
@@ -666,7 +668,15 @@ class ECGDataset:
         # Customize the plot
         plt.xlabel(x_label)
         plt.ylabel('Density' if use_density else 'Frequency')
-        plt.legend()
+
+        plt.legend(
+            loc='upper center',
+            bbox_to_anchor=(0.5, -0.15),
+            ncol=3,
+            fontsize=12,
+            frameon=False
+        )
+        # plt.legend()
 
         # Save or show the plot
         if save_path:
