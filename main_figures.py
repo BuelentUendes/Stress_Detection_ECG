@@ -105,6 +105,7 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
                 cal_df['prob_pred'],
                 cal_df['prob_true'],
                 marker='o' if model == 'lr' else 's',
+                markersize=6,
                 linestyle='-' if model == 'lr' else '--',
                 linewidth=2.0,
                 color=COLORS_DICT[model],
@@ -132,14 +133,6 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
 
     plt.legend(loc='upper left', fontsize=10, frameon=False)
     plt.tight_layout()
-
-    # # Formatting
-    # plt.xlabel('Predicted Probability', fontsize=16)
-    # plt.ylabel('True Probability in Each Bin', fontsize=16)
-    # # plt.title('Calibration Curves with 95% CI and Overlapping Histograms', fontsize=18)
-    # plt.xticks(np.linspace(0, 1, 6), fontsize=14)
-    # plt.yticks(np.linspace(0, 1, 6), fontsize=14)
-    # plt.legend(loc='upper left', fontsize=12, frameon=False)
 
     # Save the combined plot
     save_path = os.path.join(figures_path,
@@ -195,9 +188,9 @@ def load_json_feature_selection_results(
         try:
             with open(os.path.join(bootstrap_path, save_name), 'r') as f:
                 if not "random" in suffix:
-                    bootstrap_results[f"feature number {feature_number}"] = json.load(f)
+                    bootstrap_results[f"# Features: {feature_number}"] = json.load(f)
                 else:
-                    bootstrap_results[f"feature number random {feature_number}"] = json.load(f)
+                    bootstrap_results[f"# Features Random: {feature_number}"] = json.load(f)
         except FileNotFoundError:
             print(f"We could not find the file. We will continue.")
 
@@ -254,20 +247,18 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
         figures_path_root: Path to save the figure
         comparison: What comparison is plotted
     """
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(8, 6))
 
-    # Set figure style for publication
     plt.rcParams.update({
-        'font.size': 14,
-        'font.family': 'Arial',
-        'axes.labelsize': 16,
-        'axes.titlesize': 16,
-        'xtick.labelsize': 14,
-        'ytick.labelsize': 14,
+        'font.size': 12,
+        'font.family': 'Times New Roman',
+        'axes.labelsize': 12,
+        'axes.titlesize': 12,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
         'legend.fontsize': 12,
-        'legend.frameon': True,
         'legend.edgecolor': 'black',
-        'figure.dpi': 300,
+        'figure.dpi': 500,
     })
 
     # Remove top and right spines
@@ -317,7 +308,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
             handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
                                 yerr=[means[valid_idx] - ci_lower[valid_idx],
                                      ci_upper[valid_idx] - means[valid_idx]],
-                                fmt='o', capsize=5, capthick=2, markersize=8,
+                                fmt='o' if model == 'lr' else 's', capsize=5, capthick=2, markersize=6,
                                 color=COLORS_DICT[model], label=MODELS_ABBREVIATION_DICT[model],
                                 elinewidth=2)
 
@@ -333,7 +324,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
                 plt.text(pos + width/36, new_y, f' {mean:.3f}',
                          ha='left', va='center',
                          color='black',
-                         fontsize=14,
+                         fontsize=12,
                          weight="bold")
 
                 y_positions.append(new_y)  # Store adjusted y-position
@@ -346,7 +337,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
     # Simplified metric name on y-axis
     metric_labels = {
         'roc_auc': 'AUROC',
-        'pr_auc': 'PR-AUC',
+        'pr_auc': 'AUPRC',
         'precision': 'Precision',
         'balanced_accuracy': 'Balanced Accuracy',
         'f1_score': "F1-Score"
@@ -358,15 +349,23 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
     # # Add legend outside the plot
     # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-    plt.legend(loc='upper right')
+    # plt.legend(loc='upper right', frameon=False)
+    plt.legend(
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=2,
+        fontsize=12,
+        frameon=False
+    )
 
     # Add grid
-    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.grid(False)
+    # plt.grid(False, linestyle='--', alpha=0.5)
 
     # Adjust layout and save
     plt.tight_layout()
     save_path = os.path.join(figures_path_root, f'{comparison}_bootstrap_comparison_{metric}_multi_freq.png')
-    plt.savefig(save_path, bbox_inches='tight', dpi=400)
+    plt.savefig(save_path, bbox_inches='tight', dpi=500)
     plt.close()
 
 
@@ -382,7 +381,6 @@ def plot_feature_selection(
     plt.figure(figsize=(8, 6))
 
     for model, scores in feature_selection_dict.items():
-        # Plot calibration curve
         plt.plot(x_axis, scores,
             color=COLORS_DICT[model],
             label=f"{MODELS_ABBREVIATION_DICT[model]}"
@@ -399,7 +397,6 @@ def plot_feature_selection(
     plt.savefig(save_path, dpi=500, bbox_inches='tight')
     plt.close()
 
-
 def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root: str, comparison: str) -> None:
     """
     Plot model performance across feature subsets with confidence intervals.
@@ -410,36 +407,43 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
         figures_path_root: Path to save the figure.
         comparison: What comparison is plotted.
     """
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(8, 6))
 
     # Set figure style for publication
     plt.rcParams.update({
         'font.size': 14,
-        'font.family': 'Arial',
-        'axes.labelsize': 16,
-        'axes.titlesize': 16,
-        'xtick.labelsize': 14,
-        'ytick.labelsize': 14,
+        'font.family': 'Times New Roman',
+        'axes.labelsize': 14,
+        'axes.titlesize': 12,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
         'legend.fontsize': 12,
-        'legend.frameon': True,
+        'legend.frameon': False,
         'legend.edgecolor': 'black',
-        'figure.dpi': 300,
+        'figure.dpi': 500,
     })
 
     ax = plt.gca()
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
-    # Get unique models and feature sets
+    # Get models and feature sets
     model_types = sorted(results.keys())
     feature_sets = sorted({fs for model in results.values() for fs in model.keys()})
-    sorted_features = sorted(feature_sets, key=lambda x: int(re.search(r'\d+', x).group()), reverse=True)
+    sorted_features = sorted(feature_sets, key=lambda x: int(re.search(r'\d+', x).group()),
+                             reverse=True)
+
+    # Define fixed color palette for feature sets
+    base_colors = ['#56B4E9', '#009E73', '#E69F00', '#D55E00', '#CC79A7']  # Extend if needed
+    feature_colors = {
+        fs: base_colors[i % len(base_colors)] for i, fs in enumerate(sorted_features)
+    }
 
     # Reduce spacing between models
-    x = np.arange(len(model_types)) * 0.8  # Reduce model spacing
-    width = 0.08  # Smaller width for tighter grouping
+    x = np.arange(len(model_types)) * 0.4
+    width = 0.08
 
-    handles = []
+    handles = {}
     for idx, feature_set in enumerate(sorted_features):
         means, ci_lower, ci_upper = [], [], []
 
@@ -458,53 +462,74 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
         ci_lower = np.array(ci_lower)
         ci_upper = np.array(ci_upper)
 
-        # Compute x positions
-        x_pos = x + (idx - len(feature_sets)/2 + 0.5) * width
-
+        x_pos = x + (idx - len(sorted_features) / 2 + 0.5) * width
         valid_idx = ~np.isnan(means)
-        if np.any(valid_idx):
-            handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
-                                  yerr=[means[valid_idx] - ci_lower[valid_idx],
-                                        ci_upper[valid_idx] - means[valid_idx]],
-                                  fmt='o', capsize=4, capthick=1.8, markersize=7,
-                                  label=feature_set, elinewidth=1.8)
 
-            # Prevent overlapping labels
-            y_positions = []
-            offset = 0.05 * (max(means[valid_idx]) - min(means[valid_idx]))
+        for i, model_type in enumerate(model_types):
+            if not valid_idx[i]:
+                continue
 
-            for pos, mean in zip(x_pos[valid_idx], means[valid_idx]):
-                new_y = mean
-                while any(abs(new_y - y) < offset for y in y_positions):
-                    new_y -= offset
+            marker = 's' if model_type == 'xgboost' else 'o'
+            color = feature_colors[feature_set]
+            match = re.search(r'\d+', feature_set)
+            label = f"# Features: {match.group()}" if match else "# Features: N/A"
+            key = feature_set
 
-                plt.text(pos, new_y, f'{mean:.3f}', ha='center', va='bottom',
-                         color='black', fontsize=12, fontweight="bold")
-                y_positions.append(new_y)
+            # Only assign label once per feature set (for legend)
+            show_label = key not in handles
 
-            handles.append(handle)
+            handle = plt.errorbar(
+                x_pos[i], means[i],
+                yerr=[[means[i] - ci_lower[i]], [ci_upper[i] - means[i]]],
+                fmt=marker,
+                color=color,
+                capsize=5,
+                capthick=2,
+                markersize=6,
+                elinewidth=2.0,
+                label=label if show_label else None
+            )
 
-    # Customize plot
-    plt.xlabel('Model Type')
-    if metric == "roc_auc":
-        metric = "auroc"
-    plt.ylabel(metric.upper().replace('_', '-'))
+            plt.text(
+                x_pos[i] + width * 0.1, means[i], f'{means[i]:.3f}',
+                ha='left', va='center',
+                color='black', fontsize=12, fontweight="bold"
+            )
 
-    # Set x-ticks to model types
-    plt.xticks(x, model_types)
+            if show_label:
+                handles[key] = handle
 
-    # Adjust legend positioning
-    plt.legend(loc='upper left', bbox_to_anchor=(1.01, 1), title="Number of Features")
+    # Customize axis labels
+    plt.xlabel('Models')
+    metric_display = {
+        "roc_auc": "AUROC",
+        "pr_auc": "AUPRC",
+        "f1_score": "F1 Score",
+        "balanced_accuracy": "Balanced Accuracy"
+    }.get(metric, metric)
 
-    # Add grid
-    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.ylabel(metric_display)
+
+    # Set x-ticks
+    model_display_names = [MODELS_ABBREVIATION_DICT[model] for model in model_types]
+    plt.xticks(x, model_display_names)
+
+    # Add legend
+    plt.legend(
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.15),
+        ncol=4,
+        fontsize=12,
+        frameon=False
+    )
+
+    plt.grid(False)
+    plt.tight_layout()
 
     # Save figure
-    plt.tight_layout()
     save_path = os.path.join(figures_path_root, f'{comparison}_feature_subset_comparison_{metric}.png')
-    plt.savefig(save_path, bbox_inches='tight', dpi=400)
+    plt.savefig(save_path, bbox_inches='tight', dpi=500)
     plt.close()
-
 
 def main(args):
     # Get all sample frequencies to analyze
