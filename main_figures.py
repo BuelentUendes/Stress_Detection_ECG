@@ -122,8 +122,8 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
 
     plt.xlim(0, 1)
     plt.ylim(0, 1)
-    plt.xticks(np.arange(0, 1.1, 0.1), fontsize=12)
-    plt.yticks(np.arange(0, 1.1, 0.1), fontsize=12)
+    plt.xticks(np.arange(0, 1.1, 0.1), fontsize=10)
+    plt.yticks(np.arange(0, 1.1, 0.1), fontsize=10)
     plt.xlabel('Predicted Probability', fontsize=12)
     plt.ylabel('True Probability in Each Bin', fontsize=12)
     # Remove top and right spines for a cleaner look
@@ -252,7 +252,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
     plt.rcParams.update({
         'font.size': 12,
         'font.family': 'Times New Roman',
-        'axes.labelsize': 12,
+        'axes.labelsize': 14,
         'axes.titlesize': 12,
         'xtick.labelsize': 12,
         'ytick.labelsize': 12,
@@ -273,7 +273,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
     # Calculate x-positions
     x = np.arange(len(sample_freqs))
-    width = 0.3 / len(all_models)  # Adjusted bar width for better spacing
+    width = 0.5 / len(all_models)  # Adjusted bar width for better spacing
 
     # Plot for each model
     handles = []
@@ -434,7 +434,7 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
                              reverse=True)
 
     # Define fixed color palette for feature sets
-    base_colors = ['#56B4E9', '#009E73', '#E69F00', '#D55E00', '#CC79A7']  # Extend if needed
+    base_colors = ['#56B4E9', '#E69F00', '#009E73', '#D55E00', '#CC79A7']
     feature_colors = {
         fs: base_colors[i % len(base_colors)] for i, fs in enumerate(sorted_features)
     }
