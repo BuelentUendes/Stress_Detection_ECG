@@ -20,9 +20,9 @@ import numpy as np
 
 # Color scheme:
 COLORS_DICT = {
-    'rf': '#E69F00',  # Orange
+    'lr': '#E69F00',  # Orange
     'xgboost': '#56B4E9',  # Sky blue
-    'lr': '#009E73',  # Green
+    'rf': '#009E73',  # Green
     'yellow': '#F0E442',
     'blue': '#0072B2',  # Blue
     'random_baseline': '#D55E00',
@@ -54,6 +54,10 @@ LABEL_ABBREVIATION_DICT = {
     "rest": "REST",
     "any_physical_activity": "ANY_PHY",
     "non_physical_activity": "NON_PHY",
+    "standing": "STANDING",
+    "walking_own_pace": "WALKING",
+    "low_moderate_physical_activity": "LP_MPA",
+    "base_lpa_mpa": "BASE_LPA_MPA",
 }
 
 
@@ -83,7 +87,8 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
         figures_path: Base path to figures directory
         comparison: What comparison is plotted
     """
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(6, 4))
+    plt.rcParams["font.family"] = "Times New Roman"
 
     for model in models:
         # Construct path to calibration results
@@ -99,28 +104,42 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
             plt.plot(
                 cal_df['prob_pred'],
                 cal_df['prob_true'],
-                marker='o',
-                linewidth=1,
+                marker='o' if model == 'lr' else 's',
+                linestyle='-' if model == 'lr' else '--',
+                linewidth=2.0,
                 color=COLORS_DICT[model],
-                label=f"{MODELS_ABBREVIATION_DICT[model]} ECE: {np.round(ece, 4)} "
-                      f"Brier score: {np.round(brier_score, 4)}"
+                label=f"{MODELS_ABBREVIATION_DICT[model]} \nECE: {ece: .3f} "
+                      f"Brier score: {brier_score: .3f}"
             )
+
         except Exception as e:
             print(f"Error loading calibration data for {model}: {e}. We will continue")
             continue
 
     # Add diagonal reference line
-    plt.plot([0, 1], [0, 1], 'k--', label='Perfect calibration')
+    plt.plot([0, 1], [0, 1], ':', label='Perfect Calibration', color='black', lw=2.0)
 
     plt.xlim(0, 1)
     plt.ylim(0, 1)
-    plt.xticks(np.arange(0, 1.1, 0.1))
-    plt.yticks(np.arange(0, 1.1, 0.1))
-    plt.xlabel('Predicted Probability')
-    plt.ylabel('True Probability in Each Bin')
-    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.legend(loc='upper left')
+    plt.xticks(np.arange(0, 1.1, 0.1), fontsize=12)
+    plt.yticks(np.arange(0, 1.1, 0.1), fontsize=12)
+    plt.xlabel('Predicted Probability', fontsize=12)
+    plt.ylabel('True Probability in Each Bin', fontsize=12)
+    # Remove top and right spines for a cleaner look
+    ax = plt.gca()
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+
+    plt.legend(loc='upper left', fontsize=10, frameon=False)
     plt.tight_layout()
+
+    # # Formatting
+    # plt.xlabel('Predicted Probability', fontsize=16)
+    # plt.ylabel('True Probability in Each Bin', fontsize=16)
+    # # plt.title('Calibration Curves with 95% CI and Overlapping Histograms', fontsize=18)
+    # plt.xticks(np.linspace(0, 1, 6), fontsize=14)
+    # plt.yticks(np.linspace(0, 1, 6), fontsize=14)
+    # plt.legend(loc='upper left', fontsize=12, frameon=False)
 
     # Save the combined plot
     save_path = os.path.join(figures_path,
@@ -158,19 +177,19 @@ def load_json_feature_selection_results(
 
     middle_suffix = [
         "bootstrapped",
-        "feature_selection_subset_features_5_bootstrapped",
-        "feature_selection_subset_features_10_bootstrapped",
-        "feature_selection_subset_features_20_bootstrapped"
+        "feature_selection_subset_features_top_5_bootstrapped",
+        "feature_selection_subset_features_top_10_bootstrapped",
+        "feature_selection_subset_features_top_20_bootstrapped"
     ]
 
     bootstrap_results = {}
     for suffix in middle_suffix:
         save_name = f"{prefix}_{model_name}_{suffix}.json"
         feature_number_dict = {
-            "bootstrapped": 104,
-            "feature_selection_subset_features_20_bootstrapped": 20,
-            "feature_selection_subset_features_10_bootstrapped": 10,
-            "feature_selection_subset_features_5_bootstrapped": 5,
+            "bootstrapped": 79,
+            "feature_selection_subset_features_top_20_bootstrapped": 20,
+            "feature_selection_subset_features_top_10_bootstrapped": 10,
+            "feature_selection_subset_features_top_5_bootstrapped": 5,
         }
         feature_number = feature_number_dict[suffix]
         try:
@@ -326,7 +345,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
     # Simplified metric name on y-axis
     metric_labels = {
-        'roc_auc': 'ROC-AUC',
+        'roc_auc': 'AUROC',
         'pr_auc': 'PR-AUC',
         'precision': 'Precision',
         'balanced_accuracy': 'Balanced Accuracy',
@@ -337,8 +356,9 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
     # Set x-ticks to sample frequencies
     plt.xticks(x, [str(freq) for freq in sample_freqs])
 
-    # Add legend outside the plot
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+    # # Add legend outside the plot
+    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+    plt.legend(loc='upper right')
 
     # Add grid
     plt.grid(True, linestyle='--', alpha=0.5)
@@ -451,7 +471,7 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
 
             # Prevent overlapping labels
             y_positions = []
-            offset = 0.0015 * (max(means[valid_idx]) - min(means[valid_idx]))
+            offset = 0.05 * (max(means[valid_idx]) - min(means[valid_idx]))
 
             for pos, mean in zip(x_pos[valid_idx], means[valid_idx]):
                 new_y = mean
@@ -466,6 +486,8 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
 
     # Customize plot
     plt.xlabel('Model Type')
+    if metric == "roc_auc":
+        metric = "auroc"
     plt.ylabel(metric.upper().replace('_', '-'))
 
     # Set x-ticks to model types
@@ -494,11 +516,17 @@ def main(args):
     # We use this to either get the results from smote or not
     # Actually, smote does not really have an impact on the performance.
 
+    #ToDo:
+    # Actually I could rewrite this, as I have args.resampling_method
+    # Simple resampled_bool = True if args.resampling_method == "smote" would probably do it
+
     resampled_bool = (args.negative_class in [
         "low_physical_activity",
         "moderate_physical_activity",
         "rest",
-        "any_physical_activity"
+        "any_physical_activity",
+        "low_moderate_physical_activity",
+        "base_lpa_mpa",
     ]) or (args.positive_class in [
         "mental_stress",
         "low_physical_activity",
@@ -546,7 +574,7 @@ def main(args):
 
     performance_results_overview = {
         model: load_json_feature_selection_results(
-            RESULTS_PATH, model, 1000, args.window_size, comparison
+            RESULTS_PATH, model, 1000, args.window_size, comparison, resampled=resampled_bool
         ) for model in args.models
     }
 
@@ -578,11 +606,13 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
-    parser.add_argument("--negative_class", help="Which category should be 0", default="low_physical_activity",
+    parser.add_argument("--negative_class", help="Which category should be 0",
+                        default="base_lpa_mpa",
                         type=validate_category)
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)
-    parser.add_argument("--window_size", type=int, default=30, help="The window size that we use for detecting stress")
+    parser.add_argument("--window_size", type=int, default=30,
+                        help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=int, default=10,
                         help="The window shift that we use for detecting stress")
     parser.add_argument(
@@ -590,20 +620,15 @@ if __name__ == "__main__":
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
              "'knn', 'lr', 'xgboost', 'qda', 'svm', 'random_baseline', 'gmm', 'simple_baseline'",
         type=validate_models,
-        default="lr, rf, xgboost"
+        default="lr, xgboost"
     )
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
     parser.add_argument("--bin_strategy", help="what binning strategy to use",
                         default="uniform", choices=("uniform", "quantile")
                         )
-    parser.add_argument("--resampling_method", default="smote")
+    parser.add_argument("--resampling_method", default="smote", choices=("smote", "none"))
 
     args = parser.parse_args()
     main(args)
-
-    #ToDo:
-    # Here we assume that we use SMOTE anyways for mental stress vs baseline, yet, I think there are no
-    # performance differences between the two
-    # However, the calibration changes accordinlgy (less-well calibrated when I use SMOTE compared to non-oversampling)
 
