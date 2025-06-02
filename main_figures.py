@@ -435,13 +435,37 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
 
     # Define fixed color palette for feature sets
     base_colors = ['#56B4E9', '#E69F00', '#009E73', '#D55E00', '#CC79A7']
+
+    base_colors = [
+        '#009ADE',
+        '#FF1F5B',
+        '#AF58BA',
+        '#FFC61E',
+    ]
+
+    # base_colors = [
+    #     '#0d7d87',
+    #     '#99c6cc',
+    #     '#c31e23',
+    #     '#ff5a5e',
+    # ]
+    #
+    # base_colors = [
+    #     '#082a54',
+    #     '#e02b35',
+    #     '#f0c571',
+    #     '#59a89c',
+    # ]
+
+
     feature_colors = {
         fs: base_colors[i % len(base_colors)] for i, fs in enumerate(sorted_features)
     }
 
     # Reduce spacing between models
     x = np.arange(len(model_types)) * 0.4
-    width = 0.08
+    # width = 0.08
+    width = 0.05
 
     handles = {}
     for idx, feature_set in enumerate(sorted_features):
