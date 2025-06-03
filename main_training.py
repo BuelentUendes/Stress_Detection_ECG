@@ -26,7 +26,8 @@ from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_m
                                     get_bootstrapped_cohens_kappa)
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method, validate_feature_subset
-from utils.helper_xai import create_shap_dependence_plots, create_shap_beeswarm_plot, create_shap_decision_plot
+from utils.helper_xai import (create_shap_dependence_plots, create_shap_beeswarm_plot,
+                              create_shap_decision_plot, create_shap_summary_plot_simple, create_feature_name_dict)
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -679,35 +680,15 @@ def main(args):
     if args.get_model_explanations:
         if args.model_type not in ["rf", "random_baseline"] and not args.do_within_comparison and not args.use_default_values:
             explainer = shap.Explainer(best_model, train_data[0], feature_names=feature_names)
-            _, shap_values = create_shap_beeswarm_plot(explainer, test_data[0], figures_path=figures_path_root, study_name=study_name,
-                                      feature_selection=args.use_feature_selection, max_display=11)
-            create_shap_dependence_plots(shap_values, feature_names, figures_path=figures_path_root,
-                                         study_name=study_name, feature_selection=args.use_feature_selection,
-                                         n_top_features=5)
-
-            create_shap_decision_plot(
-                best_model,
+            feature_names = create_feature_name_dict()
+            _, shap_values = create_shap_summary_plot_simple(
                 explainer,
-                test_data,
-                feature_names,
-                prediction_filter='correct',
-                confidence_threshold=0.9,
+                test_data[0],
                 figures_path=figures_path_root,
                 study_name=study_name,
-                feature_selection=args.use_feature_selection
-            )
-
-            create_shap_decision_plot(
-                best_model,
-                explainer,
-                test_data,
-                feature_names,
-                prediction_filter='incorrect',
-                confidence_threshold=0.9,
-                figures_path=figures_path_root,
-                study_name=study_name,
-                feature_selection=args.use_feature_selection
-            )
+                feature_name_dict=feature_names,
+                feature_selection=args.use_feature_selection,
+                max_display=10)
 
         if args.get_cohens_kappa:
             model_comparisons = args.model_comparisons.split(",")
@@ -852,7 +833,7 @@ if __name__ == "__main__":
     # args.save_feature_plots = True
     # Set seed for reproducibility
 
-    # args.resampling_method = "smote"
+    args.resampling_method = "smote"
     # args.min_features = 3
     # args.max_features = 3
     # args.use_feature_selection = True

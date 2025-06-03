@@ -145,6 +145,7 @@ def create_shap_beeswarm_plot(
         shap_values = explainer(test_data)
 
         # Create beeswarm plot
+        plt.rcParams["font.family"] = "Times New Roman"
         plt.figure(figsize=(12, 8))
         shap.plots.beeswarm(shap_values, show=False, max_display=max_display)
         plt.tight_layout()
@@ -166,6 +167,118 @@ def create_shap_beeswarm_plot(
     except Exception as e:
         print(f"Error creating SHAP beeswarm plot: {str(e)}")
         return False, None
+
+
+def create_shap_summary_plot_simple(
+        explainer,
+        test_data,
+        figures_path=None,
+        study_name=None,
+        feature_selection=False,
+        max_display=11,
+        feature_name_dict=None
+):
+    """
+    Simple SHAP summary plot with optional feature name cleaning.
+
+    Parameters:
+    -----------
+    feature_name_dict : dict, optional
+        Dictionary mapping original feature names to clean display names.
+        Example: {'feature_mean': 'Feature', 'another_feature_std': 'Another Feature'}
+    """
+    try:
+        # Calculate SHAP values
+        print("Calculating SHAP values...")
+        shap_values = explainer(test_data)
+
+        # Handle feature name cleaning
+        feature_names = None
+        if feature_name_dict:
+            # Get original feature names from shap_values or create default ones
+            if hasattr(shap_values, 'feature_names') and shap_values.feature_names is not None:
+                original_names = shap_values.feature_names
+            else:
+                # Create default feature names if none exist
+                original_names = [f'feature_{i}' for i in range(test_data.shape[1])]
+
+            # Apply the cleaning dictionary
+            feature_names = [
+                feature_name_dict.get(name, name) for name in original_names
+            ]
+
+        plt.figure(figsize=(8, 6))
+
+        # Set figure style for publication
+        plt.rcParams.update({
+            'font.size': 14,
+            'font.family': 'Times New Roman',
+            'axes.labelsize': 14,
+            'axes.titlesize': 12,
+            'xtick.labelsize': 12,
+            'ytick.labelsize': 12,
+            'legend.fontsize': 12,
+            'legend.frameon': False,
+            'legend.edgecolor': 'black',
+            'figure.dpi': 500,
+        })
+
+        # Use summary_plot with cleaned feature names
+        shap.summary_plot(
+            shap_values,
+            test_data,
+            feature_names=feature_names,
+            max_display=max_display,
+            show=False
+        )
+
+        # Change xlabel to just "SHAP value"
+        plt.xlabel("SHAP value")
+
+        plt.tight_layout()
+
+        # Save plot if path is provided
+        if figures_path and study_name:
+            save_name = f"{study_name}_shap_summary"
+            save_name += "_feature_selection" if feature_selection else ""
+            save_name += ".png"
+            plt.savefig(
+                os.path.join(figures_path, save_name),
+                dpi=500,
+                bbox_inches='tight'
+            )
+
+        plt.close()
+        return True, shap_values
+
+    except Exception as e:
+        print(f"Error creating SHAP summary plot: {str(e)}")
+        return False, None
+
+
+# Example usage with feature name dictionary
+def create_feature_name_dict():
+    """
+    Example function to create a feature name cleaning dictionary.
+    Customize this based on your actual feature names.
+    """
+    feature_dict = {
+        # Remove underscores and clean up names
+        'pss': 'PSS',
+        'fuzzyen': 'Fuzzy Entropy',
+        'hr_max': 'Max HR',
+        'nn20': 'NN20',
+        'cvsd': 'CVSD',
+        'vhf_Feature.MEAN': 'Mean VHF Component',
+        'vhf_Feature.MIN': 'Min VHF Component',
+        'vhf_Feature.ENTROPY': 'Entropy VHF Component',
+        'vhf_Feature.MAX': 'Max VHF Component',
+        'hf_Feature.MEAN': 'Mean HF Component',
+        'hf_Feature.MIN': 'Min HF Component',
+        'hf_Feature.ENTROPY': 'Entropy HF Component',
+        'hf_Feature.MAX': 'Max HF Component',
+    }
+    return feature_dict
 
 def create_shap_dependence_plots(
     shap_values,
