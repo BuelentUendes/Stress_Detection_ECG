@@ -1521,31 +1521,6 @@ def prepare_data(train_data: pd.DataFrame,
         x_train, y_train = adasyn.fit_resample(x_train, y_train)
         # Note: label_train will be lost during ADASYN resampling
 
-    # # For better clustering with UMAP
-    # fig, ax, embedding = visualize_dimensionality_reduction(
-    #     x_train, y_train, label_train,
-    #     method='umap',
-    #     include_baseline=False,
-    #     # UMAP adjustments for tighter clusters
-    #     n_neighbors=5,
-    #     min_dist=0.00000,
-    #     metric='euclidean',
-    #     subset_size=250,
-    # )
-    #
-    # # For better clustering with t-SNE
-    # fig, ax, embedding = visualize_dimensionality_reduction(
-    #     x_train, y_train, label_train,
-    #     method='tsne',
-    #     include_baseline=False,
-    #     min_dist=0.0,
-    #     # t-SNE adjustments
-    #     perplexity=25,
-    #     n_iter=2000,
-    #     early_exaggeration=18.0,
-    #     learning_rate=150  #
-    # )
-
     # Return appropriate tuple based on whether test_data was provided
     if test_data is not None and val_data is not None:
         return (x_train, y_train, label_train), (x_val, y_val, label_val), (x_test, y_test, label_test), feature_names
@@ -2542,7 +2517,9 @@ def get_feature_importance_model(model, feature_names, normalize_values=False):
         return None
 
 
-def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), save_path=None):
+def plot_feature_importance(feature_coeffs, num_features=20, figsize=(8, 6),
+                            feature_names_dict =None,
+                            save_path=None):
     """
     Plots the most important features based on absolute coefficient values.
 
@@ -2550,6 +2527,7 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), sa
         feature_coeffs (list of tuples): List where each tuple contains (feature_name, coefficient).
         num_features (int): Number of top features to display (default: 20).
         figsize (tuple): Figure size.
+        feature_names_dict (Dict): dict includes the proper feature names
         save_path (str, optional): Path to save the figure.
     """
     feature_coeffs = np.array(feature_coeffs, dtype=object)
@@ -2561,10 +2539,27 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), sa
     feature_names = feature_names[sorted_indices][:num_features]
     coefficients = coefficients[sorted_indices][:num_features]
 
+    # Rename the features based on the feature dict given
+    # If the name is included in the feature name, return the new name, otherwise leave it unchanged
+    if feature_names_dict:
+        feature_names = np.array([feature_names_dict.get(feature, feature) for feature in feature_names])
+
     fig, ax = plt.subplots(figsize=figsize)
 
+    plt.rcParams.update({
+        'font.size': 14,
+        'font.family': 'Times New Roman',
+        'axes.labelsize': 14,
+        'axes.titlesize': 12,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'legend.frameon': False,
+        'legend.edgecolor': 'black',
+        'figure.dpi': 500,
+    })
+
     # Old color scheme
-    # colors = ['#B2182B' if coef < 0 else '#2166AC' for coef in coefficients]
     colors = ['#D73027' if coef < 0 else '#56B4E9' for coef in coefficients]
 
     y_positions = np.arange(len(feature_names))
@@ -2572,20 +2567,20 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), sa
     ax.barh(y_positions, coefficients, color=colors, alpha=0.85, edgecolor='black', linewidth=1.2)
 
     ax.set_yticks(y_positions)
-    ax.set_yticklabels(feature_names, fontsize=14)
-    ax.set_xlabel("Feature Coefficient", fontsize=16, fontweight='bold')
-    ax.set_ylabel("Feature Name", fontsize=16, fontweight='bold')
-    ax.set_title(f"Top {num_features} Most Important Features", fontsize=18, fontweight='bold', pad=15)
+    ax.set_yticklabels(feature_names)
+    ax.set_xlabel("Feature Coefficient")
+    ax.set_ylabel("Feature Name")
+    # ax.set_title(f"Top {num_features} Most Important Features", fontsize=18, fontweight='bold', pad=15)
 
     ax.axvline(0, color='black', linestyle="--", linewidth=1.5)
 
     max_coef = max(abs(coefficients))
-    plt.xlim(-1.5 * max_coef, 1.5 * max_coef)  # Expanding limits by 20% ensures no overlap
+    plt.xlim(-1.5 * max_coef, 1.5 * max_coef)
 
     for y, coef in zip(y_positions, coefficients):
         offset = 0.02 * max(abs(coefficients))
         ha = 'left' if coef > 0 else 'right'
-        ax.text(coef + (offset * np.sign(coef)), y, f'{coef:.3f}', ha=ha, va='center', fontsize=13, fontweight='bold')
+        ax.text(coef + (offset * np.sign(coef)), y, f'{coef:.3f}', ha=ha, va='center', fontsize=12, fontweight='bold')
 
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -2593,7 +2588,7 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), sa
     ax.spines['bottom'].set_color('black')
     ax.xaxis.set_tick_params(width=1.2, length=6)
     ax.yaxis.set_tick_params(width=1.2, length=6)
-    ax.grid(axis='x', linestyle='--', alpha=0.6)
+    # ax.grid(axis='x', linestyle='--', alpha=0.6)
 
     # Invert y-axis to put the most important feature on the top
     ax.invert_yaxis()
@@ -2601,7 +2596,7 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(10, 7), sa
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=600, bbox_inches="tight", transparent=False)
+        plt.savefig(save_path, dpi=500, bbox_inches="tight", transparent=False)
 
     plt.close()
 

@@ -674,7 +674,10 @@ def main(args):
             json.dump(lr_coefficients, f, indent=4)
 
         save_name = os.path.join(figures_path_root, f"{save_name_feature_coefficients}.png")
-        plot_feature_importance(lr_coefficients, num_features=10, figsize=(10, 7), save_path=save_name)
+        feature_names_dict = create_feature_name_dict()
+        plot_feature_importance(lr_coefficients, num_features=10, figsize=(8, 6),
+                                feature_names_dict=feature_names_dict,
+                                save_path=save_name)
 
     # XAI now only for between person
     if args.get_model_explanations:
@@ -743,7 +746,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
-                        type=validate_ml_model, default="xgboost")
+                        type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default=None)
