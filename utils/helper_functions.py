@@ -561,6 +561,7 @@ class ECGDataset:
                        save_name: Optional[str] = None,
                        show_plot=True,
                        show_baseline=True,
+                       include_high_physical_activity: Optional[bool] = False,
                        plot_subcategory: Optional[bool] = False,
                        category_to_plot: Optional[str] = "mental_stress") -> None:
         """
@@ -572,6 +573,8 @@ class ECGDataset:
             use_density: bool: if set, we normalize the data and the pdf is then shown
             save_path: Optional path to save the plot. If None, plot is displayed.
             save_name: Optional: name of the resulting plot
+            include_high_physical_activity: Optional: If set, we plot also high physical activity, which is excluded
+            from the manuscript, as we do not do the comparison with it in the mental stress detection task
             plot_subcategory: Optional: If set, we plot the subcategory labels
             category_to_plot: Optional: Which category to focus on when plotting labels
         """
@@ -598,7 +601,7 @@ class ECGDataset:
                 'orange': '#E69F00',
                 'Sitting and recovery': '#000000',
                 'low_physical_activity': '#009E73',
-                'moderate_physical_activity': '#F0E442',
+                'moderate_physical_activity': '#F0DC82',
                 'blue': '#0072B2',
                 'mental_stress': '#0072B2',
                 'high_physical_activity': '#d84315',
@@ -620,6 +623,13 @@ class ECGDataset:
 
         # Silver color palette
         # https: // www.color - hex.com / color - palette / 1057579
+
+        # Exclude already the high physical activity (as we do not need it for plotting)
+        self.total_data_copy = self.total_data.copy()
+
+        if not include_high_physical_activity:
+            self.total_data_copy = self.total_data[(self.total_data['category'] != "high_physical_activity")]
+
 
         if plot_subcategory:
             label_data = self.total_data[self.total_data["category"]==category_to_plot][[column, "label"]]
@@ -657,10 +667,10 @@ class ECGDataset:
         for category, color in colors.items():
             if category == "Sitting and recovery":
                 category_name = "baseline"
-                category_data = self.total_data[(self.total_data['category'] == category_name) | (self.total_data["label"] == category_name)][column]
+                category_data = self.total_data_copy[(self.total_data_copy['category'] == category_name) | (self.total_data_copy["label"] == category_name)][column]
             else:
                 category_data = \
-                self.total_data[(self.total_data['category'] == category) | (self.total_data["label"] == category)][
+                self.total_data_copy[(self.total_data_copy['category'] == category) | (self.total_data_copy["label"] == category)][
                     column]
             if not category_data.empty:
                 sns.kdeplot(category_data, color=color, label=category.replace('_', ' ').title(), fill=True, alpha=0.6)
@@ -2561,6 +2571,8 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(8, 6),
 
     # Old color scheme
     colors = ['#D73027' if coef < 0 else '#56B4E9' for coef in coefficients]
+    # Red green
+    colors = ['#40B0A6' if coef > 0 else '#D41159' for coef in coefficients]
 
     y_positions = np.arange(len(feature_names))
 
@@ -2572,7 +2584,7 @@ def plot_feature_importance(feature_coeffs, num_features=20, figsize=(8, 6),
     ax.set_ylabel("Feature Name")
     # ax.set_title(f"Top {num_features} Most Important Features", fontsize=18, fontweight='bold', pad=15)
 
-    ax.axvline(0, color='black', linestyle="--", linewidth=1.5)
+    ax.axvline(0, color='black', linestyle="-", linewidth=1.5)
 
     max_coef = max(abs(coefficients))
     plt.xlim(-1.5 * max_coef, 1.5 * max_coef)
