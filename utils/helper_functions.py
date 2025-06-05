@@ -673,6 +673,8 @@ class ECGDataset:
                 self.total_data_copy[(self.total_data_copy['category'] == category) | (self.total_data_copy["label"] == category)][
                     column]
             if not category_data.empty:
+                if category == "Sitting and recovery":
+                    category = "Recovery (sitting)"
                 sns.kdeplot(category_data, color=color, label=category.replace('_', ' ').title(), fill=True, alpha=0.6)
 
         # Customize the plot
@@ -2258,6 +2260,8 @@ class FeatureSelectionPipeline:
             params = {
                 "C": trial.suggest_float("C", 0.0, 5.0),
                 "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+                "kernel": "rbf",
+                "probability": True,
             }
 
         elif isinstance(self.base_estimator, DummyClassifier):
