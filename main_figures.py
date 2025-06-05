@@ -22,7 +22,8 @@ import numpy as np
 COLORS_DICT = {
     'lr': '#E69F00',  # Orange
     'xgboost': '#56B4E9',  # Sky blue
-    'rf': '#009E73',  # Green
+    # 'rf': '#009E73',  # Green
+    'rf': "#A3D5E0",
     'yellow': '#F0E442',
     'blue': '#0072B2',  # Blue
     'random_baseline': '#D55E00',
@@ -273,7 +274,10 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
     # Calculate x-positions
     x = np.arange(len(sample_freqs))
-    width = 0.5 / len(all_models)  # Adjusted bar width for better spacing
+
+    width_factor = 0.80 if len(all_models) == 3 else 0.5
+
+    width = width_factor / len(all_models)  # Adjusted bar width for better spacing
 
     # Plot for each model
     handles = []
@@ -300,7 +304,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
         ci_upper = np.array(ci_upper)
 
         # Calculate x positions for this model (centered around the frequency position)
-        x_pos = x + (idx - len(all_models)/2 + 0.5) * width
+        x_pos = x + (idx - len(all_models)/2 + 0.75) * width
 
         # Plot confidence intervals and means
         valid_idx = ~np.isnan(means)
@@ -347,20 +351,16 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
     # Set x-ticks to sample frequencies
     plt.xticks(x, [str(freq) for freq in sample_freqs])
 
-    # # Add legend outside the plot
-    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-    # plt.legend(loc='upper right', frameon=False)
     plt.legend(
         loc='upper center',
         bbox_to_anchor=(0.5, -0.15),
-        ncol=2,
+        ncol=len(all_models),
         fontsize=12,
         frameon=False
     )
 
     # Add grid
     plt.grid(False)
-    # plt.grid(False, linestyle='--', alpha=0.5)
 
     # Adjust layout and save
     plt.tight_layout()
@@ -656,7 +656,7 @@ if __name__ == "__main__":
     parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
-                        default="base_lpa_mpa",
+                        default="baseline",
                         type=validate_category)
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)
@@ -669,7 +669,7 @@ if __name__ == "__main__":
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
              "'knn', 'lr', 'xgboost', 'qda', 'svm', 'random_baseline', 'gmm', 'simple_baseline'",
         type=validate_models,
-        default="lr, xgboost"
+        default="lr,xgboost"
     )
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
