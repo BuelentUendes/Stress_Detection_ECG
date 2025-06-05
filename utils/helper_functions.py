@@ -441,9 +441,9 @@ class ECGDataset:
             y='hrv_reactivity',
             data=plot_data,
             order=ordered_labels,
-            color='darkgray',
+            color='#4D4D4D',
             size=2,
-            alpha=0.9,
+            alpha=0.5,
             jitter=True,
             dodge=False,
             ax=ax
@@ -516,7 +516,7 @@ class ECGDataset:
             mlines.Line2D([], [], marker='D', color='white', markerfacecolor='black', markersize=8, label='Mean'))
         legend_items.append(mlines.Line2D([], [], marker='_', color='black', lw=1.5, markersize=10, label='Median'))
         legend_items.append(
-            mlines.Line2D([], [], marker='o', color='white', markerfacecolor='darkgray', alpha=0.9, markersize=6,
+            mlines.Line2D([], [], marker='o', color='white', markerfacecolor='#4D4D4D', alpha=0.5, markersize=6,
                           label='Individual Data Points'))
 
         # Add significance section
