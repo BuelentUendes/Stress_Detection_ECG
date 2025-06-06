@@ -24,6 +24,8 @@ from utils.helper_functions import create_directory
 
 def main(args):
 
+    print(args.sample_frequency)
+
     WINDOW_SIZE = args.window_size * args.sample_frequency  # how many time points we have effectively
     STEP_SIZE = int(args.window_shift * args.sample_frequency)  # time points (units) which we shift
 
@@ -49,7 +51,7 @@ def main(args):
             .extract(hr([Statistic.MIN, Statistic.MAX, Statistic.MEAN, Statistic.STD], sampling_rate=args.sample_frequency)) \
             .extract(hrv([Statistic.MEAN, Statistic.STD, Statistic.RMS], args.sample_frequency)) \
             .extract(time_domain([TimeFeature.CVNN, TimeFeature.CVSD, TimeFeature.NN20, TimeFeature.PNN20, TimeFeature.NN50, TimeFeature.PNN50], sampling_rate=args.sample_frequency)) \
-            .extract(frequency_domain([FrequencyFeature.MIN, FrequencyFeature.MAX, FrequencyFeature.MEAN, FrequencyFeature.STD,FrequencyFeature.POWER, FrequencyFeature.COVARIANCE, FrequencyFeature.ENERGY, FrequencyFeature.ENTROPY], sampling_rate=args.sample_frequency)) \
+            .extract(frequency_domain(sampling_rate=args.sample_frequency)) \
             .extract(nonlinear_domain([NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE, NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION], sampling_rate=args.sample_frequency)) \
             .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean, sampling_rate=args.sample_frequency))) \
             .extract(morphology_domain([MorphologyFeature.TWA])) \
@@ -58,12 +60,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline for extracting features of the cleaned ECG data")
-    parser.add_argument("--sample_frequency", type=int, default=1000, help="Sampling rate used for the dataset")
+    parser.add_argument("--sample_frequency", type=int, default=250, help="Sampling rate used for the dataset")
     parser.add_argument("--window_size", type=int, default=30, help="How many seconds we consider")
-    parser.add_argument("--window_shift", type=float, default=5,
+    parser.add_argument("--window_shift", type=float, default=30,
                         help="How much shift in seconds between consecutive windows.")
     parser.add_argument("--participant_number", type=int, help="which specific number to run. Set -1 for all",
-                        default=30101)
+                        default=30100)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
