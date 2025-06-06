@@ -8,9 +8,9 @@ from neurokit2.signal import signal_psd
 from neurokit2.signal.signal_power import _signal_power_continuous
 from neurokit2.hrv.hrv_frequency import _hrv_format_input
 from neurokit2.hrv.intervals_process import intervals_process
-
+from antropy.utils import _xlogx
+from scipy.integrate import simpson, trapezoid
 import numpy as np
-    
 from enum import Enum
 
 class Feature(str, Enum):
@@ -32,9 +32,8 @@ class Feature(str, Enum):
     """The entropy of the feature."""
 
 def frequency_domain(
-        features: tuple[Feature], 
-        # ulf: tuple[int, int] = (0, 0.0033),
-        # vlf: tuple[int, int] = (0.0033, 0.04),
+        ulf: tuple[int, int] = (0, 0.0033),
+        vlf: tuple[int, int] = (0.0033, 0.04),
         lf: tuple[int, int] = (0.04, 0.15),
         hf: tuple[int, int] = (0.15, 0.4),
         vhf: tuple[int, int] = (0.4, 0.5),
@@ -45,8 +44,8 @@ def frequency_domain(
 
     Parameters
     ----------
-    features : tuple[Feature]
-        A tuple of features to compute. Can be any of 'mean', 'std', 'min', 'max', 'power', 'covariance', 'energy', 'entropy'.
+    # features : tuple[Feature]
+    #     A tuple of features to compute. Can be any of 'mean', 'std', 'min', 'max', 'power', 'covariance', 'energy', 'entropy'.
     ulf : tuple, optional
         Upper and lower limit of the ultra-low frequency band. By default (0, 0.0033).
     vlf : tuple, optional
@@ -68,23 +67,8 @@ def frequency_domain(
         A function that takes in rpeaks and returns a dictionary of frequency domain features.
     """
     def inner(rpeaks: list[int]):
-        result = {}
         warnings.filterwarnings("ignore")
-        for feature in features:
-            df = hrv_frequency(rpeaks, sampling_rate=sampling_rate, statistic=feature, lf=lf, hf=hf, vhf=vhf, uhf=uhf)
-            df = df.fillna(0.00001)
-            result.update({
-                f'lf_{feature}': df['HRV_LF'].item(),
-                f'hf_{feature}': df['HRV_HF'].item(),
-                f'vhf_{feature}': df['HRV_VHF'].item(),
-                f'uhf_{feature}': df['HRV_UHF'].item(),
-                f'tp_{feature}': df['HRV_TP'].item(),
-                f'lp_lf_{feature}': (df['HRV_LF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
-                f'lp_hf_{feature}': (df['HRV_HF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
-                f'lp_vhf_{feature}': (df['HRV_VHF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
-                f'lp_uhf_{feature}': (df['HRV_UHF'].item() / (df['HRV_TP'].item() +1e-5)) * 100,
-                f'lf_hf_{feature}': df['HRV_LF'].item() / df['HRV_HF'].item(),
-            })
+        result = hrv_frequency(rpeaks, sampling_rate, hf=hf, vhf=vhf, uhf=uhf)
         warnings.filterwarnings("default")
         return result
     return inner
@@ -97,16 +81,15 @@ def hrv_frequency(
     sampling_rate=1000,
     # ulf=(0, 0.0033),
     # vlf=(0.0033, 0.04),
-    lf=(0.04, 0.15),
+    # lf=(0.04, 0.15),
     hf=(0.15, 0.4),
     vhf=(0.4, 0.5),
     uhf=(0.5, 1),
     psd_method="welch",
-    silent=True,
+    silent=False, # We will output if the frequency is too short to produce reliable measures!
     normalize=True,
     order_criteria=None,
     interpolation_rate=100,
-    statistic: Feature ="power",
     **kwargs
 ):
     """**Computes frequency-domain indices of Heart Rate Variability (HRV)**
@@ -261,7 +244,9 @@ def hrv_frequency(
     else:
         t = None
 
-    frequency_band = [lf, hf, vhf, uhf]
+    # frequency_band = [lf, hf, vhf, uhf]
+    # We just consider the high, very high and ultra high frequency
+    frequency_band = [hf, vhf, uhf]
 
     # Find maximum frequency
     max_frequency = np.max([np.max(i) for i in frequency_band])
@@ -275,35 +260,9 @@ def hrv_frequency(
         normalize=normalize,
         order_criteria=order_criteria,
         t=t,
-        statistic=statistic
     )
 
-    power.columns = ["LF", "HF", "VHF", "UHF"]
-
     out = power.to_dict(orient="index")[0]
-
-    if silent is False:
-        for frequency in out.keys():
-            if out[frequency] == 0.0:
-                warn(
-                    "The duration of recording is too short to allow"
-                    " reliable computation of signal power in frequency band " + frequency + "."
-                    " Its power is returned as zero.",
-                    category=NeuroKitWarning,
-                )
-
-    # Normalized
-    total_power = np.nansum(power.values)
-    out["TP"] = total_power
-    out["LFHF"] = out["LF"] / out["HF"]
-    out["LFn"] = out["LF"] / total_power
-    out["HFn"] = out["HF"] / total_power
-    out["LF/HF+LF"] = out["LF"] / (out["HF"] + out["LF"])
-    out["HF/HF+LF"] = out["HF"] / (out["HF"] + out["LF"])
-
-    # Log
-    out["LnHF"] = np.log(out["HF"])  # pylint: disable=E1111
-
     out = pd.DataFrame.from_dict(out, orient="index").T.add_prefix(f"HRV_")
     return out
 
@@ -313,7 +272,6 @@ def signal_power(
     sampling_rate=1000,
     continuous=False,
     normalize=True,
-    statistic: Feature ="power",
     **kwargs,
 ):
     """**Compute the power of a signal in a given frequency band**
@@ -398,7 +356,6 @@ def signal_power(
             frequency_band,
             sampling_rate=sampling_rate,
             normalize=normalize,
-            statistic=statistic,
             **kwargs,
         )
     else:
@@ -414,7 +371,6 @@ def _signal_power_instant(
     sampling_rate=1000,
     normalize=True,
     order_criteria="KIC",
-    statistic="power",
     **kwargs,
 ):
     # Sanitize frequency band
@@ -435,32 +391,51 @@ def _signal_power_instant(
         **kwargs,
     )
 
-    psd = psd[(psd["Frequency"] >= min_freq) & (psd["Frequency"] <= max_freq)]
-
     out = {}
+    psd = psd[(psd["Frequency"] >= min_freq) & (psd["Frequency"] <= max_freq)]
+    total_power_all_bands = _signal_power_instant_compute(psd, band=(min_freq, max_freq))
+
     for band in frequency_band:
-        if statistic == "min":
-            value = _signal_min_instant_compute(psd, band)
-        elif statistic == "max":
-            value = _signal_max_instant_compute(psd, band)
-        elif statistic == "mean":
-            value = _signal_mean_instant_compute(psd, band)
-        elif statistic == "median":
-            value = _signal_median_instant_compute(psd, band)
-        elif statistic == "std":
-            value = _signal_std_instant_compute(psd, band)
-        elif statistic == "power":
-            value = _signal_power_instant_compute(psd, band)
-        elif statistic == "covariance":
-            value = _signal_covariance_instant_compute(psd, band)
-        elif statistic == "energy": 
-            value = _signal_energy_instant_compute(psd, band)
-        elif statistic == "entropy": 
-            value = _signal_entropy_instant_compute(psd, band)
-        else:
-            print("NeuroKit error: signal_power(): 'statistic' should be one of 'min', 'max', 'mean', 'median', 'std', 'power', 'covariance', 'energy', 'entropy'")
-        out[f"Hz_{band[0]}_{band[1]}"] = value
+        # Extract the psd within that band
+        min_psd = _signal_min_instant_compute(psd, band)
+        max_psd = _signal_max_instant_compute(psd, band)
+        median_psd = _signal_median_instant_compute(psd, band)
+        mean_psd = _signal_mean_instant_compute(psd, band)
+        std_psd = _signal_std_instant_compute(psd, band)
+        entropy_psd = _signal_entropy_instant_compute(psd, band)
+        total_band_power_psd = _signal_power_instant_compute(psd, band)
+
+        relative_band_power_psd = (total_band_power_psd / total_power_all_bands * 100)
+        band_classification = _return_band_classification(band)
+
+        # Add to the dictionary
+        out[f"Min_power_{band_classification}_band"] = min_psd
+        out[f"Max_power_{band_classification}_band"] = max_psd
+        out[f"Median_power_{band_classification}_band"] = median_psd
+        out[f"Mean_power_{band_classification}_band"] = mean_psd
+        out[f"Std_power_{band_classification}_band"] = std_psd
+        out[f"Entropy_power_{band_classification}_band"] = entropy_psd
+        out[f"Total_band_power_{band_classification}_band"] = total_band_power_psd
+        out[f"Relative_band_power_{band_classification}_band"] = relative_band_power_psd
+
     return out
+
+def _return_band_classification(band):
+    """Returns the label associated with the frequency band."""
+    if band[0] == 0.00:
+        return "ULF"
+    elif band[0] == 0.0033:
+        return "VLF"
+    elif band[0] == 0.04:
+        return "LF"
+    elif band[0] == 0.15:
+        return "HF"
+    elif band[0] == 0.4:
+        return "VHF"
+    elif band[0] == 0.5:
+        return "UHF"
+    else:
+        return "Unknown band"
 
 def _signal_min_instant_compute(psd, band):
     """Calculates the minimum power in a given frequency band."""
@@ -492,10 +467,21 @@ def _signal_std_instant_compute(psd, band):
     std = np.std(psd["Power"][where])
     return np.nan if std == 0.0 else std
 
-def _signal_power_instant_compute(psd, band):
-    """Calculates the power in a given frequency band."""
+def _signal_power_instant_compute(psd, band, method="simpson"):
+    """Calculates the total power in a given frequency band."""
     where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
-    power = np.trapz(y=psd["Power"][where], x=psd["Frequency"][where])
+    # Simpson is better and more precise
+
+    #https: // raphaelvallat.com / bandpower.html
+
+    psd_band = psd["Power"][where].to_numpy()
+    freq_band = psd["Frequency"][where].to_numpy()
+    freq_resolution = freq_band[1] - freq_band[0]
+
+    if method == "simpson":
+        power = simpson(y=psd_band, dx=freq_resolution)
+    else:
+        power = np.trapz(y=psd["Power"][where], x=psd["Frequency"][where])
     return np.nan if power == 0.0 else power
 
 def _signal_covariance_instant_compute(psd, band):
@@ -513,5 +499,8 @@ def _signal_energy_instant_compute(psd, band):
 def _signal_entropy_instant_compute(psd, band):
     """Calculates the entropy of power in a given frequency"""
     where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
-    entropy = -np.sum(psd["Power"][where] * np.log2(psd["Power"][where]))
+    psd_interest = psd["Power"][where].to_numpy()
+    psd_band_norm = psd_interest / psd_interest.sum(axis=-1, keepdims=True)
+    entropy = - _xlogx(psd_band_norm).sum(axis=-1)
+
     return np.nan if entropy == 0.0 else entropy
