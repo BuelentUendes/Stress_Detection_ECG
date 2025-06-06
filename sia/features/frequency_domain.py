@@ -407,31 +407,31 @@ def _signal_power_instant(
         band_classification = _return_band_classification(band)
 
         # Add to the dictionary
-        out[f"Min_power_{band_classification}_band"] = min_psd
-        out[f"Max_power_{band_classification}_band"] = max_psd
-        out[f"Median_power_{band_classification}_band"] = median_psd
-        out[f"Mean_power_{band_classification}_band"] = mean_psd
-        out[f"Std_power_{band_classification}_band"] = std_psd
-        out[f"Entropy_power_{band_classification}_band"] = entropy_psd
-        out[f"Total_band_power_{band_classification}_band"] = total_band_power_psd
-        out[f"Relative_band_power_{band_classification}_band"] = relative_band_power_psd
+        out[f"min_power_{band_classification}_band"] = min_psd
+        out[f"max_power_{band_classification}_band"] = max_psd
+        out[f"median_power_{band_classification}_band"] = median_psd
+        out[f"mean_power_{band_classification}_band"] = mean_psd
+        out[f"std_power_{band_classification}_band"] = std_psd
+        out[f"entropy_power_{band_classification}_band"] = entropy_psd
+        out[f"total_band_power_{band_classification}_band"] = total_band_power_psd
+        out[f"relative_band_power_{band_classification}_band"] = relative_band_power_psd
 
     return out
 
 def _return_band_classification(band):
     """Returns the label associated with the frequency band."""
     if band[0] == 0.00:
-        return "ULF"
+        return "ulf"
     elif band[0] == 0.0033:
-        return "VLF"
+        return "vlf"
     elif band[0] == 0.04:
-        return "LF"
+        return "lf"
     elif band[0] == 0.15:
-        return "HF"
+        return "hf"
     elif band[0] == 0.4:
-        return "VHF"
+        return "vhf"
     elif band[0] == 0.5:
-        return "UHF"
+        return "uhf"
     else:
         return "Unknown band"
 
