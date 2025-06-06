@@ -471,7 +471,6 @@ def _signal_power_instant_compute(psd, band, method="simpson"):
     """Calculates the total power in a given frequency band."""
     where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
     # Simpson is better and more precise
-
     #https: // raphaelvallat.com / bandpower.html
 
     psd_band = psd["Power"][where].to_numpy()

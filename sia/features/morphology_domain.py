@@ -32,7 +32,7 @@ def morphology_domain(features: tuple[Feature]):
         for feature in features:
             if feature == Feature.TWA:
                 twa = calculate_twa(ECG_Clean, tpeaks)
-                result.update({ "twa": twa.item() })
+                result.update({"twa": float(twa)})
             else:
                 raise ValueError(f"Feature {feature} is not valid.")
         warnings.filterwarnings("default")

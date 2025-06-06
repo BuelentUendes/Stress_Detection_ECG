@@ -45,11 +45,19 @@ def nonlinear_domain(features: tuple[Feature], sampling_rate: int = 1000):
                 hrv_nonlinear = hrv_nonlinear.fillna(0)
                 hrv_nonlinear = hrv_nonlinear.iloc[0].to_dict()
 
+                # result.update({
+                #     f'apen': hrv_nonlinear.get("HRV_ApEn", 0),
+                #     f'sampen': hrv_nonlinear.get("HRV_SampEn", 0),
+                #     f'fuzzyen': hrv_nonlinear.get("HRV_FuzzyEn", 0),
+                # })
+
+                # We do not take 'sampen' as this feature is problematic in short segments and therefore results
+                # in a lot of inifity values 15% which is unacceptable
                 result.update({
                     f'apen': hrv_nonlinear.get("HRV_ApEn", 0),
-                    f'sampen': hrv_nonlinear.get("HRV_SampEn", 0),
                     f'fuzzyen': hrv_nonlinear.get("HRV_FuzzyEn", 0),
                 })
+
             elif feature == Feature.POINCARE:
                 hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate=sampling_rate)
                 hrv_nonlinear = hrv_nonlinear.fillna(0)
