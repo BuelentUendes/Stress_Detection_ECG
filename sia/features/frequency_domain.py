@@ -108,7 +108,6 @@ def hrv_frequency(
       the total power.
     * **HFn**: The normalized high frequency, obtained by dividing the low frequency power by
       the total power.
-    * **LnHF**: The log transformed HF.
 
     Note that a minimum duration of the signal containing the peaks is recommended for some HRV
     indices to be meaningful. For instance, 1, 2 and 5 minutes of high quality signal are the
@@ -140,6 +139,8 @@ def hrv_frequency(
         Upper and lower limit of the high frequency band. By default (0.15, 0.4).
     vhf : tuple, optional
         Upper and lower limit of the very-high frequency band. By default (0.4, 0.5).
+    uhf: tuple, optional
+        Upper and lower limit of the very-high frequency band. By default (0.5, 1.0).
     psd_method : str
         Method used for spectral density estimation. For details see :func:`.signal_power`.
         By default ``"welch"``.
@@ -243,8 +244,6 @@ def hrv_frequency(
     else:
         t = None
 
-    # frequency_band = [lf, hf, vhf, uhf]
-    # We just consider the high, very high and ultra high frequency
     frequency_band = [hf, vhf, uhf]
 
     # Find maximum frequency
