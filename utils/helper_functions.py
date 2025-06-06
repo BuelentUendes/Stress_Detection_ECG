@@ -488,7 +488,14 @@ class ECGDataset:
 
         # Improve x-tick labels for readability
         plt.xticks(rotation=45, ha='right')
-        ax.set_xticklabels([label.replace('_', ' ') for label in ordered_labels], fontsize=12)
+        xlabels = [
+            "SSST" if label.startswith("SSST") else label.replace('_', ' ').upper().replace(" REPEAT", " (repeat)")
+            for label in ordered_labels
+            ]
+        # How can I make REPEAT THEN AFTERWARDS small so for instance TA (repeat)
+
+        ax.set_xticklabels(xlabels, fontsize=12)
+        # ax.set_xticklabels([label.replace('_', ' ').upper() for label in ordered_labels], fontsize=12)
 
         # Add subtle grid for y-axis only
         # ax.yaxis.grid(True, linestyle='--', alpha=0.3)
