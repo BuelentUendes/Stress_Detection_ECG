@@ -86,7 +86,6 @@ def hrv_frequency(
     vhf=(0.4, 0.5),
     uhf=(0.5, 1),
     psd_method="welch",
-    silent=False, # We will output if the frequency is too short to produce reliable measures!
     normalize=True,
     order_criteria=None,
     interpolation_rate=100,
