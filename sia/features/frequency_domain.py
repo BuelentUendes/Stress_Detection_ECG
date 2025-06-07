@@ -260,9 +260,6 @@ def hrv_frequency(
         t=t,
     )
 
-    # out = power.to_dict(orient="index")[0]
-    # # out = pd.DataFrame.from_dict(out, orient="index").T.add_prefix(f"HRV_")
-    # out = pd.DataFrame.from_dict(power, orient="index").T
     return power
 
 def signal_power(
