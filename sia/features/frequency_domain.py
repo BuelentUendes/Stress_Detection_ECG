@@ -260,9 +260,10 @@ def hrv_frequency(
         t=t,
     )
 
-    out = power.to_dict(orient="index")[0]
-    out = pd.DataFrame.from_dict(out, orient="index").T.add_prefix(f"HRV_")
-    return out
+    # out = power.to_dict(orient="index")[0]
+    # # out = pd.DataFrame.from_dict(out, orient="index").T.add_prefix(f"HRV_")
+    # out = pd.DataFrame.from_dict(power, orient="index").T
+    return power
 
 def signal_power(
     signal,
@@ -359,7 +360,7 @@ def signal_power(
     else:
         out = _signal_power_continuous(signal, frequency_band, sampling_rate=sampling_rate)
 
-    out = pd.DataFrame.from_dict(out, orient="index").T
+    # out = pd.DataFrame.from_dict(out, orient="index").T
 
     return out
 
@@ -391,7 +392,12 @@ def _signal_power_instant(
 
     out = {}
     psd = psd[(psd["Frequency"] >= min_freq) & (psd["Frequency"] <= max_freq)]
-    total_power_all_bands = _signal_power_instant_compute(psd, band=(min_freq, max_freq))
+
+    total_power_all_bands = (
+        _signal_power_instant_compute(psd, band=(frequency_band[0][0], frequency_band[0][1])) +
+        _signal_power_instant_compute(psd, band=(frequency_band[1][0], frequency_band[1][1])) +
+        _signal_power_instant_compute(psd, band=(frequency_band[2][0], frequency_band[2][1]))
+    )
 
     for band in frequency_band:
         # Extract the psd within that band
@@ -403,7 +409,7 @@ def _signal_power_instant(
         entropy_psd = _signal_entropy_instant_compute(psd, band)
         total_band_power_psd = _signal_power_instant_compute(psd, band)
 
-        relative_band_power_psd = (total_band_power_psd / total_power_all_bands * 100)
+        relative_band_power_psd = (total_band_power_psd / total_power_all_bands) * 100
         band_classification = _return_band_classification(band)
 
         # Add to the dictionary
@@ -437,43 +443,78 @@ def _return_band_classification(band):
 
 def _signal_min_instant_compute(psd, band):
     """Calculates the minimum power in a given frequency band."""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     min = np.min(psd["Power"][where])
     return np.nan if min == 0.0 else min
 
 def _signal_max_instant_compute(psd, band):
     """Calculates the maximum power in a given frequency band."""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     max = np.max(psd["Power"][where])
     return np.nan if max == 0.0 else max
 
 def _signal_mean_instant_compute(psd, band):
     """Calculates the mean power in a given frequency band."""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     mean = np.mean(psd["Power"][where])
     return np.nan if mean == 0.0 else mean
 
 def _signal_median_instant_compute(psd, band):
     """Calculates the median power in a given frequency band."""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     median = np.median(psd["Power"][where])
     return np.nan if median == 0.0 else median
 
 def _signal_std_instant_compute(psd, band):
     """Calculates the standard deviation of power in a given frequency band."""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     std = np.std(psd["Power"][where])
     return np.nan if std == 0.0 else std
 
 def _signal_power_instant_compute(psd, band, method="simpson"):
     """Calculates the total power in a given frequency band."""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    #I should do an equal sign here for upper band!
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     # Simpson is better and more precise
     #https: // raphaelvallat.com / bandpower.html
 
     psd_band = psd["Power"][where].to_numpy()
     freq_band = psd["Frequency"][where].to_numpy()
-    freq_resolution = freq_band[1] - freq_band[0]
+    try:
+        freq_resolution = freq_band[1] - freq_band[0]
+    except IndexError:
+        # Sometimes there is an indexing error, so then we go to fallback strategy trapz
+        method = "trapz"
 
     if method == "simpson":
         power = simpson(y=psd_band, dx=freq_resolution)
@@ -483,19 +524,34 @@ def _signal_power_instant_compute(psd, band, method="simpson"):
 
 def _signal_covariance_instant_compute(psd, band):
     """Calculates the covariance of power in a given frequency band."""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     covariance = np.cov(psd["Power"][where])
     return np.nan if covariance == 0.0 else covariance
 
 def _signal_energy_instant_compute(psd, band):
     """Calculates the energy of power in a given frequency"""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     energy = np.sum(psd["Power"][where])
     return np.nan if energy == 0.0 else energy
 
 def _signal_entropy_instant_compute(psd, band):
     """Calculates the entropy of power in a given frequency"""
-    where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    if band[1] < 1.0:
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
+    else:
+        # Upper bound needs to be exact for the UHF!
+        where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
+
     psd_interest = psd["Power"][where].to_numpy()
     psd_band_norm = psd_interest / psd_interest.sum(axis=-1, keepdims=True)
     entropy = - _xlogx(psd_band_norm).sum(axis=-1)
