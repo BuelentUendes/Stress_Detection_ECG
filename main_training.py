@@ -155,6 +155,8 @@ def objective(trial: Trial,
         params = {
             "C": trial.suggest_float("C", 0.0, 5.0),
             "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+            "probability": True,
+            "kernel": "rbf",
         }
 
     elif model_type.lower() == "random_baseline":
@@ -433,8 +435,6 @@ def main(args):
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
                                                   reference=reference, show_plot=False)
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
-                                                  reference=reference, show_plot=False)
-        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
                                                   reference=reference, heart_measure="hr_mean",
                                                   show_plot=False)
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
@@ -701,7 +701,8 @@ def main(args):
             for model in model_comparisons:
                 file_path = os.path.join(root_path, model, "best_model_weights")
                 with open(os.path.join(file_path, f"classification_threshold_{args.resampling_method}.json"), "r") as f:
-                    classification_threshold = json.load(f)["classification_threshold"]
+                    # We set the best threshold to detect
+                    classification_threshold = json.load(f)["classification_threshold f1"]
                 model_dict[model] = (load_best_model(file_path, file_name), classification_threshold)
 
             final_cohen_results = {}
@@ -726,7 +727,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
     parser.add_argument("--positive_class", help="Which category should be 1",
-                        default="ssst",
+                        default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
                         default="base_lpa_mpa",
@@ -832,7 +833,7 @@ if __name__ == "__main__":
     args.use_feature_subset = False
     # args.use_top_features = True
     args.do_hyperparameter_tuning = True
-    args.get_model_explanations = True
+    args.get_model_explanations = True if args.model_type != "rf" else False
     # args.save_feature_plots = True
     # Set seed for reproducibility
 
