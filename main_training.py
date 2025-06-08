@@ -400,6 +400,8 @@ def main(args):
                                                           "bootstrap_test")
         results_path_model_weights = os.path.join(results_path_root, "subsample", args.balance_sublabels_method,
                                                   "best_model_weights")
+        results_path_bootstrap_train_performance = os.path.join(results_path_root, "bootstrap_train")
+        results_path_bootstrap_val_performance = os.path.join(results_path_root, "bootstrap_val")
 
     else:
         results_path_best_performance = os.path.join(results_path_root, "best_performance")
@@ -423,6 +425,7 @@ def main(args):
     if not args.leave_one_out:
         create_directory(results_path_bootstrap_train_performance)
         create_directory(results_path_bootstrap_val_performance)
+
     create_directory(figures_path_root)
     create_directory(figures_path_feature_plots)
     create_directory(results_path_model_weights)
@@ -655,7 +658,7 @@ def main(args):
                 json.dump(final_bootstrapped_results[1], f, indent=4)
 
         if args.leave_one_out:
-            with open(os.path.join(results_path_bootstrap_performance, f"{save_name_overall}_held_out.json"), "w") as f:
+            with open(os.path.join(results_path_bootstrap_performance, f"{save_name_overall}_in_distribution_known_stressors.json"), "w") as f:
                 json.dump(final_bootstrapped_results[2], f, indent=4)
 
     if args.add_calibration_plots and not args.do_within_comparison and not args.use_default_values:
@@ -730,7 +733,7 @@ if __name__ == "__main__":
                         default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
-                        default="base_lpa_mpa",
+                        default="baseline",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
