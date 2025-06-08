@@ -277,6 +277,25 @@ def create_feature_name_dict():
         'hf_Feature.MIN': 'Min HF Component',
         'hf_Feature.ENTROPY': 'Entropy HF Component',
         'hf_Feature.MAX': 'Max HF Component',
+        'hr_min': 'Min HR',
+        'pnn20': 'PNN20',
+        'hrv_std': "STD HRV",
+        'wen': "WEN",
+        'hr_std': "STD HR",
+        "max_power_hf_band": "Maximum power in HF band",
+        "total_band_power_vhf_band": "Total power in VHF band",
+        "total_band_power_hf_band": "Total power in HF band",
+        "twa": "TWA",
+        "relative_band_power_vhf_band": "Relative power in VHF band",
+        "relative_band_power_hf_band": "Relative power in HF band",
+        "median_power_vhf_band": "Median power in VHF band",
+        "min_power_hf_band": "Minimum power in HF band",
+        "mean_power_vhf_band": "Mean power in VHF band",
+        "entropy_power_hf_band": "Entropy of power in HF band",
+
+
+
+
     }
     return feature_dict
 
