@@ -280,7 +280,7 @@ def create_feature_name_dict():
         'hr_min': 'Min HR',
         'pnn20': 'PNN20',
         'hrv_std': "STD HRV",
-        'wen': "WEN",
+        'wen': "WEn",
         'hr_std': "STD HR",
         "max_power_hf_band": "Maximum power in HF band",
         "total_band_power_vhf_band": "Total power in VHF band",
