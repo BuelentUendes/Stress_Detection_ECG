@@ -115,6 +115,7 @@ class Feature(str, Enum):
     NK_MEDIAN_NN = "nk_median_nn"
     NK_MAD_NN = "nk_mad_nn" # Median absolute deviation
     NK_TINN = "nk_tinn"
+    NK_IQR_NN ="nk_iqr_nn"
 
 def time_domain(features: list[Feature], sampling_rate: int = 1000):
     """Compute time domain features.
@@ -179,6 +180,8 @@ def time_domain(features: list[Feature], sampling_rate: int = 1000):
                 value = hrv_time["HRV_CVNN"].item()
             elif key == Feature.NK_CVSD:
                 value = hrv_time["HRV_CVSD"].item()
+            elif key == Feature.NK_IQR_NN:
+                value = hrv_time["HRV_IQRNN"].item()
             if value != None:
                 try:
                     result[key] = value.item()

@@ -51,7 +51,7 @@ def main(args):
             .extract(hr([Statistic.MIN, Statistic.MAX, Statistic.MEAN, Statistic.STD], sampling_rate=args.sample_frequency)) \
             .extract(time_domain(
         [
-        TimeFeature.NK_RMSSD, TimeFeature.NK_MeanNN, TimeFeature.NK_SDNN, TimeFeature.NK_MAD_NN,
+        TimeFeature.NK_RMSSD, TimeFeature.NK_MeanNN, TimeFeature.NK_SDNN, TimeFeature.NK_MAD_NN, TimeFeature.NK_IQR_NN,
             TimeFeature.NK_PNN20, TimeFeature.NK_PNN50, TimeFeature.NK_RMSSD,
         ], sampling_rate=args.sample_frequency)) \
             .extract(frequency_domain(sampling_rate=args.sample_frequency)) \
