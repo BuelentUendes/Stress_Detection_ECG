@@ -20,6 +20,11 @@ class Feature(str, Enum):
     """Indices of Heart Rate Fragmentation (Costa, 2017)"""
     RQA = "rqa"
     """Recurrence Quantification Analysis (RQA) features."""
+    DFA = "dfa"
+    """Detrended Fluctuation Analysis (DFA) features."""
+    HEART_ASYMMETRY = "heart_asymmetry"
+    """Heart Asymmetry measure. Here we take the area index."""
+
 
 def nonlinear_domain(features: tuple[Feature], sampling_rate: int = 1000):
     """Compute nonlinear domain features.
@@ -42,47 +47,59 @@ def nonlinear_domain(features: tuple[Feature], sampling_rate: int = 1000):
         for feature in features:
             if feature == Feature.ENTROPY:
                 hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate=sampling_rate)
-                hrv_nonlinear = hrv_nonlinear.fillna(0)
+                # hrv_nonlinear = hrv_nonlinear.fillna(0)
                 hrv_nonlinear = hrv_nonlinear.iloc[0].to_dict()
 
-                # result.update({
-                #     f'apen': hrv_nonlinear.get("HRV_ApEn", 0),
-                #     f'sampen': hrv_nonlinear.get("HRV_SampEn", 0),
-                #     f'fuzzyen': hrv_nonlinear.get("HRV_FuzzyEn", 0),
-                # })
-
                 # We do not take 'sampen' as this feature is problematic in short segments and therefore results
-                # in a lot of inifity values 15% which is unacceptable
+                # in a lot of infinity values 15% which is unacceptable
                 result.update({
-                    f'apen': hrv_nonlinear.get("HRV_ApEn", 0),
-                    f'fuzzyen': hrv_nonlinear.get("HRV_FuzzyEn", 0),
+                    f'apen': hrv_nonlinear.get("HRV_ApEn", np.nan), #0
+                    f'fuzzyen': hrv_nonlinear.get("HRV_FuzzyEn", np.nan),
                 })
 
             elif feature == Feature.POINCARE:
                 hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate=sampling_rate)
-                hrv_nonlinear = hrv_nonlinear.fillna(0)
+                # hrv_nonlinear = hrv_nonlinear.fillna(0)
                 hrv_nonlinear = hrv_nonlinear.iloc[0].to_dict()
 
                 result.update({
-                    f'sd1': hrv_nonlinear.get("HRV_SD1", 0),
-                    f'sd2': hrv_nonlinear.get("HRV_SD2", 0),
-                    f'sd1_sd2': hrv_nonlinear.get("HRV_SD1SD2", 0),
+                    f'sd1': hrv_nonlinear.get("HRV_SD1", np.nan),
+                    f'sd2': hrv_nonlinear.get("HRV_SD2", np.nan),
+                    # f'sd1_sd2': hrv_nonlinear.get("HRV_SD1SD2", np.nan),
                 })
             elif feature == Feature.FRAGMENTATION:
                 hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate=sampling_rate)
-                hrv_nonlinear = hrv_nonlinear.fillna(0)
+                # hrv_nonlinear = hrv_nonlinear.fillna(0)
                 hrv_nonlinear = hrv_nonlinear.iloc[0].to_dict()
 
                 result.update({
-                    f'pss': hrv_nonlinear.get("HRV_PSS", 0),
+                    f'pss': hrv_nonlinear.get("HRV_PSS", np.nan),
+                    # We do not take the other ones,as pip and ials are highly correlated with pss,
+                    # PAS is somewhat different, but measures a specific alternation pattern.
+                    # f'pip': hrv_nonlinear.get("HRV_PIP", np.nan),
+                    # f"ials": hrv_nonlinear.get("HRV_IALS", np.nan),
+                    # f"pas": hrv_nonlinear.get("HRV_PAS", np.nan),
                 })
             elif feature == Feature.RQA:
                 rqa = nk.hrv_rqa(rpeaks, sampling_rate=sampling_rate)
-                rqa = rqa.fillna(0)
+                # rqa = rqa.fillna(0)
                 result.update({
                     f"w": rqa['W'].item(),
                     f"wmax": rqa['WMax'].item(),
                     f"wen": rqa['WEn'].item()
+                })
+
+            elif feature == Feature.DFA:
+                hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate=sampling_rate)
+                hrv_nonlinear = hrv_nonlinear.iloc[0].to_dict()
+                result.update({
+                    f"dfa_alpha1": hrv_nonlinear.get("HRV_DFA_alpha1", np.nan)
+                })
+            elif feature == Feature.HEART_ASYMMETRY:
+                hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate)
+                hrv_nonlinear = hrv_nonlinear.iloc[0].to_dict()
+                result.update({
+                    f"hrv_area_index": hrv_nonlinear.get("HRV_AI", np.nan)
                 })
             else:
                 raise ValueError(f"Feature {feature} is not valid.")

@@ -416,6 +416,8 @@ def _signal_power_instant(
         out[f"mean_power_{band_classification}_band"] = mean_psd
         out[f"std_power_{band_classification}_band"] = std_psd
         out[f"entropy_power_{band_classification}_band"] = entropy_psd
+        # It is better to measure the total power normalized across all bands considered
+
         out[f"total_band_power_{band_classification}_band"] = total_band_power_psd
         out[f"relative_band_power_{band_classification}_band"] = relative_band_power_psd
 

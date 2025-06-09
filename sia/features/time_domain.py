@@ -1,5 +1,7 @@
 from typing import Union, Callable
 
+import neurokit2 as nk
+
 try:
     import cupy as cp
     np = cp
@@ -9,7 +11,7 @@ except ImportError:
 from enum import Enum
 
 def _calculate_rr_interval(rpeaks: list[int], sampling_rate: int = 1000):
-    """Compute R-R intervals (also referred to as NN) in milliseconds"""
+    """Compute R-R intervals (also referred to as NN) in seconds"""
     rri = np.diff(rpeaks) * (1 / sampling_rate)
     return rri
 
@@ -24,7 +26,7 @@ class Statistic(Enum):
     """Mean value."""
     MEDIAN = lambda x: np.median(x),
     """Median value."""
-    RMS = lambda x: np.sqrt(np.mean(x ** 2)),
+    RMS = lambda x: np.sqrt(np.mean(np.diff(x) ** 2)),
     """Root mean square."""
 
 def hr(statistics: Union[dict, list[Statistic]], sampling_rate: int = 1000):
@@ -44,7 +46,7 @@ def hr(statistics: Union[dict, list[Statistic]], sampling_rate: int = 1000):
     """
     def inner(rpeaks: list[int]):
         rri = _calculate_rr_interval(rpeaks, sampling_rate)
-        hr = 60 / rri # HR = 60/RR interval in seconds
+        hr = 60 / rri # HR = 60/RR interval in beats per minute
         
         result = {}
         if isinstance(statistics, dict):
@@ -73,6 +75,7 @@ def hrv(statistics: Union[dict, list[Statistic]], sampling_rate: int = 1000):
     """
     def inner(rpeaks: list[int]):
         hrv = np.array([(rpeaks[i]-rpeaks[i-1])/sampling_rate for i in range(1,len(rpeaks))])
+        hrv *= 1000 # Convert to miliseconds
 
         result = {}
         if isinstance(statistics, dict):
@@ -101,6 +104,17 @@ class Feature(str, Enum):
     """Coefficient of variation of RR intervals"""
     CVSD = "cvsd"
     """Coefficient of variation of successive differences."""
+    NK_PNN20 = "nk_pnn20"
+    NK_PNN50 = "nk_pnn50"
+    NK_RMSSD = "nk_rmssd"
+    NK_MeanNN = "nk_mean_nn"
+    NK_SDNN = "nk_sd_nn"
+    NK_SD_RMSSD = "nk_sd_rmssd"
+    NK_CVNN = "nk_cvnn"
+    NK_CVSD = "nk_cvsd"
+    NK_MEDIAN_NN = "nk_median_nn"
+    NK_MAD_NN = "nk_mad_nn" # Median absolute deviation
+    NK_TINN = "nk_tinn"
 
 def time_domain(features: list[Feature], sampling_rate: int = 1000):
     """Compute time domain features.
@@ -119,11 +133,11 @@ def time_domain(features: list[Feature], sampling_rate: int = 1000):
     """
     def inner(rpeaks: list[int]):
         rri = _calculate_rr_interval(rpeaks, sampling_rate)
-        
+        hrv_time = nk.hrv_time(rpeaks, sampling_rate=sampling_rate)
+
         result = {}
         for key in features:
             value = None
-
             if key == Feature.NN20:
                 value = np.sum(np.abs(np.diff(rri)) > 0.02)
             elif key == Feature.PNN20:
@@ -142,8 +156,33 @@ def time_domain(features: list[Feature], sampling_rate: int = 1000):
                 value = np.std(rri) / np.mean(rri)
             elif key == Feature.CVSD:
                 value = np.sqrt(np.mean(np.diff(rri) ** 2)) / np.mean(rri)
-
-            if value != None:            
-                result[key] = value.item()
+            # IMPORTANT: CHECK THIS!
+            elif key == Feature.NK_PNN20:
+                value = hrv_time["HRV_pNN20"].item()
+            elif key == Feature.NK_PNN50:
+                value = hrv_time["HRV_pNN50"].item()
+            elif key == Feature.NK_RMSSD:
+                value = hrv_time["HRV_RMSSD"].item()
+            elif key == Feature.NK_MeanNN:
+                value = hrv_time["HRV_MeanNN"].item()
+            elif key == Feature.NK_SDNN:
+                value = hrv_time["HRV_SDNN"].item()
+            elif key == Feature.NK_SD_RMSSD:
+                value = hrv_time["HRV_SDRMSSD"].item()
+            elif key == Feature.NK_MEDIAN_NN:
+                value = hrv_time["HRV_MedianNN"].item()
+            elif key == Feature.NK_MAD_NN:
+                value = hrv_time["HRV_MadNN"].item()
+            elif key == Feature.NK_TINN:
+                value = hrv_time["HRV_TINN"].item()
+            elif key == Feature.NK_CVNN:
+                value = hrv_time["HRV_CVNN"].item()
+            elif key == Feature.NK_CVSD:
+                value = hrv_time["HRV_CVSD"].item()
+            if value != None:
+                try:
+                    result[key] = value.item()
+                except AttributeError:
+                    result[key] = value
         return result
     return inner

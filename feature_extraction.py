@@ -49,20 +49,25 @@ def main(args):
             .extract('label', lambda label: Counter(label).most_common(1)[0][0]) \
             .use('rpeaks', lambda ECG_R_Peaks: extract_peaks(ECG_R_Peaks)) \
             .extract(hr([Statistic.MIN, Statistic.MAX, Statistic.MEAN, Statistic.STD], sampling_rate=args.sample_frequency)) \
-            .extract(hrv([Statistic.MEAN, Statistic.STD, Statistic.RMS], args.sample_frequency)) \
-            .extract(time_domain([TimeFeature.CVNN, TimeFeature.CVSD, TimeFeature.NN20, TimeFeature.PNN20, TimeFeature.NN50, TimeFeature.PNN50], sampling_rate=args.sample_frequency)) \
+            .extract(time_domain(
+        [
+        TimeFeature.NK_RMSSD, TimeFeature.NK_MeanNN, TimeFeature.NK_SDNN, TimeFeature.NK_MAD_NN,
+            TimeFeature.NK_PNN20, TimeFeature.NK_PNN50, TimeFeature.NK_RMSSD,
+        ], sampling_rate=args.sample_frequency)) \
             .extract(frequency_domain(sampling_rate=args.sample_frequency)) \
-            .extract(nonlinear_domain([NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE, NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION], sampling_rate=args.sample_frequency)) \
+            .extract(nonlinear_domain([
+        NonlinearFeature.DFA, NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE,
+        NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION, NonlinearFeature.HEART_ASYMMETRY,
+    ], sampling_rate=args.sample_frequency)) \
             .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean, sampling_rate=args.sample_frequency))) \
             .extract(morphology_domain([MorphologyFeature.TWA])) \
         .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv'), use_parquet=False))
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline for extracting features of the cleaned ECG data")
-    parser.add_argument("--sample_frequency", type=int, default=250, help="Sampling rate used for the dataset")
+    parser.add_argument("--sample_frequency", type=int, default=125, help="Sampling rate used for the dataset")
     parser.add_argument("--window_size", type=int, default=30, help="How many seconds we consider")
-    parser.add_argument("--window_shift", type=float, default=30,
+    parser.add_argument("--window_shift", type=float, default=10,
                         help="How much shift in seconds between consecutive windows.")
     parser.add_argument("--participant_number", type=int, help="which specific number to run. Set -1 for all",
                         default=30100)
