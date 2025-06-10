@@ -155,14 +155,17 @@ def calculate_twa(signal: list[float], sampling_rate: int, max_delta=32) -> dict
     delineate_dict, _ = nk.ecg_delineate(
         signal, rpeaks, method="dwt", sampling_rate=sampling_rate
     )
-    s_peaks    = delineate_dict["ECG_S_Peaks"]
+    # We want to measure the T-wave alternans
+    # Ideally, we measure beginning from the J point. However, NeuroKit2 does not offer this
+    # So we will proceed and measure the twave and get the alternans within this segment of the ECG beat
+    t_onsets    = delineate_dict["ECG_T_Onsets"]
     t_offsets  = delineate_dict["ECG_T_Offsets"]
 
     # Now put them together and then
-    st_interval = s_peaks + t_offsets
-    intervals = ones_to_intervals(st_interval)
+    t_wave_interval = t_onsets + t_offsets
+    intervals = ones_to_intervals(t_wave_interval)
 
-    # Calculate the differentce)
+    # Calculate the minimum difference, as we need to make sure each beat segment is of the same size for the comparison later
     min_len_st = np.min([(end-start) for start,end in intervals])
 
     # 2) Slice out each raw beat segment:
