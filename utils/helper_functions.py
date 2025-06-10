@@ -306,7 +306,7 @@ class ECGDataset:
                                       show_plot=True,
                                       reference="Sitting",
                                       exclude_recovery= False,
-                                      heart_measure="hrv_mean"):
+                                      heart_measure="nk_mean_nn"):
         # We calculate the average HR reactivity based on participant id
         total_data_participant = self._load_data(self.data_folders, add_participant_id=True)
 
@@ -480,11 +480,14 @@ class ECGDataset:
             ax.text(i, current_max + y_buffer, significance,
                     horizontalalignment='center', fontsize=12, fontweight='bold')
 
-        label_plot =  heart_measure.split("_")[0].upper()
+        if heart_measure == "nk_mean_nn":
+            label_plot = "AVNN"
+        else:
+            label_plot =  heart_measure.split("_")[0].upper()
 
         # Customize the plot appearance
         ax.set_xlabel('Experimental Condition', fontsize=14)
-        ax.set_ylabel(f'{label_plot} Reactivity\n(Δ from baseline)', fontsize=14)
+        ax.set_ylabel(f'{label_plot} Reactivity\n(Δ from sitting baseline) (ms)', fontsize=14)
 
         # Improve x-tick labels for readability
         plt.xticks(rotation=45, ha='right')
