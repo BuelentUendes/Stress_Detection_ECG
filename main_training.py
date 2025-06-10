@@ -437,17 +437,8 @@ def main(args):
         # We plot the reference HR reactivity only always against the true negative reference class sitting
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
                                                   reference=reference, show_plot=False)
-        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
-                                                  reference=reference, heart_measure="hr_mean",
-                                                  show_plot=False)
-        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
-                                                  reference=reference, heart_measure="hr_min",
-                                                  show_plot=False)
-        ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
-                                                  reference=reference, heart_measure="hrv_std",
-                                                  show_plot=False)
 
-    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean Heart Rate (BPM)", save_path=figures_path_hist, show_plot=False)
+    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean Heart Rate (bpm)", save_path=figures_path_hist, show_plot=False)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
