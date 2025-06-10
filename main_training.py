@@ -327,7 +327,7 @@ def optimize_hyperparameters(
         )
         
         # We will save the best results now here:
-                # Save study statistics and best parameters
+        # Save study statistics and best parameters
         study_stats = {
             "best_params": study.best_params,
             "best_value": study.best_value,
@@ -447,9 +447,7 @@ def main(args):
                                                   reference=reference, heart_measure="hrv_std",
                                                   show_plot=False)
 
-    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean heart rate", save_path=figures_path_hist, show_plot=False)
-    ecg_dataset.plot_histogram(column="hrv_mean", x_label="Mean heart rate variability", save_path=figures_path_hist,
-                               show_plot=False)
+    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean Heart Rate (BPM)", save_path=figures_path_hist, show_plot=False)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
@@ -733,7 +731,7 @@ if __name__ == "__main__":
                         default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
-                        default="baseline",
+                        default="base_lpa_mpa",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
