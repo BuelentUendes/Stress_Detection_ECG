@@ -150,58 +150,70 @@ def calculate_twa(signal: list[float], sampling_rate: int, max_delta=32) -> dict
     (S-peak to T-offset) instead of j-to-T, per your adaptation.
     Returns the peak absolute alternans between the even- and odd-beat MMAs.
     """
-    # 1) Delineate S and T-offsets
-    _, rpeaks = nk.ecg_peaks(signal, sampling_rate=sampling_rate)
-    delineate_dict, _ = nk.ecg_delineate(
-        signal, rpeaks, method="dwt", sampling_rate=sampling_rate
-    )
-    # We want to measure the T-wave alternans
-    # Ideally, we measure beginning from the J point. However, NeuroKit2 does not offer this
-    # So we will proceed and measure the twave and get the alternans within this segment of the ECG beat
-    t_onsets    = delineate_dict["ECG_T_Onsets"]
-    t_offsets  = delineate_dict["ECG_T_Offsets"]
+    try:
+        # 1) Delineate S and T-offsets
+        _, rpeaks = nk.ecg_peaks(signal, sampling_rate=sampling_rate)
+        delineate_dict, _ = nk.ecg_delineate(
+            signal, rpeaks, method="dwt", sampling_rate=sampling_rate
+        )
+        # We want to measure the T-wave alternans
+        # Ideally, we measure beginning from the J point. However, NeuroKit2 does not offer this
+        # So we will proceed and measure the twave and get the alternans within this segment of the ECG beat
+        t_onsets = delineate_dict["ECG_T_Onsets"]
+        t_offsets = delineate_dict["ECG_T_Offsets"]
 
-    # Now put them together and then
-    t_wave_interval = t_onsets + t_offsets
-    intervals = ones_to_intervals(t_wave_interval)
+        # Now put them together and then
+        t_wave_interval = t_onsets + t_offsets
+        intervals = ones_to_intervals(t_wave_interval)
 
-    # Calculate the minimum difference, as we need to make sure each beat segment is of the same size for the comparison later
-    min_len_st = np.min([(end-start) for start,end in intervals])
+        # Calculate the minimum difference, as we need to make sure each beat segment is of the same size for the comparison later
+        min_len_st = np.min([(end-start) for start,end in intervals])
 
-    # 2) Slice out each raw beat segment:
-    # We need to make sure each beat is of the same length!
-    raw_beats = []
-    for (s, t) in intervals:
-        if 0 <= s < t <= len(signal):
-            raw_beats.append(np.asarray(signal[s:min(t, s+min_len_st)], dtype=float))
+        # 2) Slice out each raw beat segment:
+        # We need to make sure each beat is of the same length!
+        raw_beats = []
+        for (s, t) in intervals:
+            if 0 <= s < t <= len(signal):
+                raw_beats.append(np.asarray(signal[s:min(t, s+min_len_st)], dtype=float))
 
-    # 3) Split into even (A) and odd (B) by index in the beat list:
-    beats_A = raw_beats[0::2]  # B-series uses the 1st, 3rd, … raw beats
-    beats_B = raw_beats[1::2]  # A-series uses the 2nd, 4th, … raw beats
+        # 3) Split into even (A) and odd (B) by index in the beat list:
+        beats_A = raw_beats[0::2]  # B-series uses the 1st, 3rd, … raw beats
+        beats_B = raw_beats[1::2]  # A-series uses the 2nd, 4th, … raw beats
 
-    # Minimal length checks:
-    assert np.min([b.size for b in beats_A]) == min_len_st, "Something with the minimal st length went wrong!"
-    assert np.min([b.size for b in beats_B]) == min_len_st, "Something with the minimal st length went wrong!"
+        # Minimal length checks:
+        assert np.min([a.size for a in beats_A]) == min_len_st, "Something with the minimal st length went wrong!"
+        assert np.min([b.size for b in beats_B]) == min_len_st, "Something with the minimal st length went wrong!"
 
-    mma_A = beats_A[0].copy()
-    mma_B = beats_B[0].copy()
+        mma_A = beats_A[0].copy()
+        mma_B = beats_B[0].copy()
 
-    # Update MMA for A beats
-    for beat_series in beats_A[1:]:
-        diffs = (beat_series - mma_A) / 8
-        delta = calculate_delta_modified_moving_average_vectorized(diffs, max_delta)
-        mma_A += delta
+        # Update MMA for A beats
+        for beat_series in beats_A[1:]:
+            diffs = (beat_series - mma_A) / 8
+            delta = calculate_delta_modified_moving_average_vectorized(diffs, max_delta)
+            mma_A += delta
 
-    # Update MMA for B beats
-    for beat_series in beats_B[1:]:
-        diffs = (beat_series - mma_B) / 8
-        delta = calculate_delta_modified_moving_average_vectorized(diffs, max_delta)
-        mma_B += delta
+        # Update MMA for B beats
+        for beat_series in beats_B[1:]:
+            diffs = (beat_series - mma_B) / 8
+            delta = calculate_delta_modified_moving_average_vectorized(diffs, max_delta)
+            mma_B += delta
 
-    # 6) TWA magnitude = max |MMA_A – MMA_B| (as shown in equation (4) Paper:
-    # Modified moving average analysis of T-wave alternans to predict ventricular fibrillation with high accuracy
-    #    (if series lengths differ by one, align on shorter)
-    length = min(mma_A.size, mma_B.size)
-    twa_value = np.max(np.abs(mma_A[:length] - mma_B[:length]))
+        # 6) TWA magnitude = max |MMA_A – MMA_B| (as shown in equation (4) Paper:
+        # Modified moving average analysis of T-wave alternans to predict ventricular fibrillation with high accuracy
+        #    (if series lengths differ by one, align on shorter)
+        length = min(mma_A.size, mma_B.size)
+        twa_value = np.max(np.abs(mma_A[:length] - mma_B[:length]))
 
-    return twa_value
+        # Sanity check on the result
+        if np.isnan(twa_value) or np.isinf(twa_value):
+            print("Warning: Invalid TWA value computed")
+            return np.nan
+
+        else:
+            return twa_value
+
+    except Exception as e:
+        print(f"Error {e} in TWA calculation return np.nan")
+        return np.nan
+
