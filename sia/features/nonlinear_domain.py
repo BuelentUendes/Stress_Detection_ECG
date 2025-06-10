@@ -65,7 +65,7 @@ def nonlinear_domain(features: tuple[Feature], sampling_rate: int = 1000):
                 result.update({
                     f'sd1': hrv_nonlinear.get("HRV_SD1", np.nan),
                     f'sd2': hrv_nonlinear.get("HRV_SD2", np.nan),
-                    # f'sd1_sd2': hrv_nonlinear.get("HRV_SD1SD2", np.nan),
+                    f'sd1_sd2': hrv_nonlinear.get("HRV_SD1SD2", np.nan),
                 })
             elif feature == Feature.FRAGMENTATION:
                 hrv_nonlinear = nk.hrv_nonlinear(rpeaks, sampling_rate=sampling_rate)
