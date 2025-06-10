@@ -180,7 +180,7 @@ def load_json_feature_selection_results(
     for suffix in middle_suffix:
         save_name = f"{prefix}_{model_name}_{suffix}.json"
         feature_number_dict = {
-            "bootstrapped": 79,
+            "bootstrapped": 47,
             "feature_selection_subset_features_top_20_bootstrapped": 20,
             "feature_selection_subset_features_top_10_bootstrapped": 10,
             "feature_selection_subset_features_top_5_bootstrapped": 5,
@@ -238,7 +238,11 @@ def load_json_results(path: str,
         return None
 
 
-def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_path_root: str, comparison: str) -> None:
+def plot_bootstrap_comparison(bootstrapped_results: dict,
+                              metric: str,
+                              figures_path_root: str,
+                              comparison: str,
+                              window_size: int) -> None:
     """
     Plot bootstrap results comparison across sample frequencies for multiple models.
 
@@ -247,6 +251,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
         metric: Metric to plot ('roc_auc', 'pr_auc', 'precision')
         figures_path_root: Path to save the figure
         comparison: What comparison is plotted
+        window_size: What window size was used to do the mental stress detection
     """
     plt.figure(figsize=(8, 6))
 
@@ -262,6 +267,12 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
         'figure.dpi': 500,
     })
 
+    symbol_dict = {
+        "lr": 'o',
+        "xgboost": "s",
+        "rf": "d",
+    }
+
     # Remove top and right spines
     ax = plt.gca()
     ax.spines['top'].set_visible(False)
@@ -275,7 +286,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
     # Calculate x-positions
     x = np.arange(len(sample_freqs))
 
-    width_factor = 0.80 if len(all_models) == 3 else 0.5
+    width_factor = 0.90 if len(all_models) == 3 else 0.5
 
     width = width_factor / len(all_models)  # Adjusted bar width for better spacing
 
@@ -312,7 +323,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
             handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
                                 yerr=[means[valid_idx] - ci_lower[valid_idx],
                                      ci_upper[valid_idx] - means[valid_idx]],
-                                fmt='o' if model == 'lr' else 's', capsize=5, capthick=2, markersize=6,
+                                fmt=symbol_dict[model], capsize=5, capthick=2, markersize=6,
                                 color=COLORS_DICT[model], label=MODELS_ABBREVIATION_DICT[model],
                                 elinewidth=2)
 
@@ -364,7 +375,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict, metric: str, figures_p
 
     # Adjust layout and save
     plt.tight_layout()
-    save_path = os.path.join(figures_path_root, f'{comparison}_bootstrap_comparison_{metric}_multi_freq.png')
+    save_path = os.path.join(figures_path_root, f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window.png')
     plt.savefig(save_path, bbox_inches='tight', dpi=500)
     plt.close()
 
@@ -397,7 +408,11 @@ def plot_feature_selection(
     plt.savefig(save_path, dpi=500, bbox_inches='tight')
     plt.close()
 
-def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root: str, comparison: str) -> None:
+def plot_feature_subset_comparison(results: dict,
+                                   metric: str,
+                                   figures_path_root: str,
+                                   comparison: str,
+                                   window_size: int) -> None:
     """
     Plot model performance across feature subsets with confidence intervals.
 
@@ -406,6 +421,7 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
         metric: Performance metric to plot ('roc_auc', 'pr_auc', etc.)
         figures_path_root: Path to save the figure.
         comparison: What comparison is plotted.
+        window_size: What window size was used.
     """
     plt.figure(figsize=(8, 6))
 
@@ -463,7 +479,7 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
     }
 
     # Reduce spacing between models
-    x = np.arange(len(model_types)) * 0.4
+    x = np.arange(len(model_types)) * 0.3
     # width = 0.08
     width = 0.05
 
@@ -551,7 +567,7 @@ def plot_feature_subset_comparison(results: dict, metric: str, figures_path_root
     plt.tight_layout()
 
     # Save figure
-    save_path = os.path.join(figures_path_root, f'{comparison}_feature_subset_comparison_{metric}.png')
+    save_path = os.path.join(figures_path_root, f'{comparison}_feature_subset_comparison_{metric}_{str(window_size)}_window.png')
     plt.savefig(save_path, bbox_inches='tight', dpi=500)
     plt.close()
 
@@ -630,12 +646,13 @@ def main(args):
     # Plot bootstrap comparisons for each metric
     metrics = ['roc_auc', 'pr_auc', 'balanced_accuracy', 'f1_score']
     for metric in metrics:
-        plot_bootstrap_comparison(bootstrapped_results, metric, FIGURES_PATH, comparison)
+        plot_bootstrap_comparison(bootstrapped_results, metric, FIGURES_PATH, comparison, window_size=args.window_size)
         plot_feature_subset_comparison(
             results=performance_results_overview,
             metric=metric,
             figures_path_root=figures_path,
-            comparison='model_feature_comparison'
+            comparison='model_feature_comparison',
+            window_size=args.window_size,
         )
 
     # Note: The calibration curves plotting remains unchanged as it's for single frequency
@@ -653,10 +670,11 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
-    parser.add_argument("--positive_class", help="Which category should be 1", default="mental_stress",
+    parser.add_argument("--positive_class", help="Which category should be 1",
+                        default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
-                        default="baseline",
+                        default="base_lpa_mpa",
                         type=validate_category)
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
                         default=1000, type=int)
