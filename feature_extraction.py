@@ -4,6 +4,7 @@ import os
 import argparse
 
 from collections import Counter
+from pyexpat import features
 
 from sia import Segmenter
 from sia.io import read_csv, write_csv
@@ -31,7 +32,7 @@ def main(args):
 
     input_path = os.path.join(CLEANED_DATA_PATH, str(args.sample_frequency))
     output_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size),
-                               str(args.window_shift))
+                               f"{str(args.window_shift)}_twa")
     create_directory(output_path)
 
     input_file = str(args.participant_number) + ".parquet" if args.participant_number != -1 else "*.parquet"
@@ -51,16 +52,17 @@ def main(args):
             .extract(hr([Statistic.MIN, Statistic.MAX, Statistic.MEAN, Statistic.STD], sampling_rate=args.sample_frequency)) \
             .extract(time_domain(
         [
-        TimeFeature.NK_RMSSD, TimeFeature.NK_MeanNN, TimeFeature.NK_SDNN, TimeFeature.NK_MAD_NN, TimeFeature.NK_IQR_NN,
-            TimeFeature.NK_PNN20, TimeFeature.NK_PNN50, TimeFeature.NK_RMSSD,
+        TimeFeature.NK_RMSSD, TimeFeature.NK_MeanNN, TimeFeature.NK_SDNN, TimeFeature.NK_MAD_NN,
+            TimeFeature.NK_IQR_NN, TimeFeature.NK_PNN20, TimeFeature.NK_PNN50, TimeFeature.NK_CVNN, TimeFeature.NK_CVSD
         ], sampling_rate=args.sample_frequency)) \
             .extract(frequency_domain(sampling_rate=args.sample_frequency)) \
             .extract(nonlinear_domain([
         NonlinearFeature.DFA, NonlinearFeature.ENTROPY, NonlinearFeature.POINCARE,
         NonlinearFeature.RQA, NonlinearFeature.FRAGMENTATION, NonlinearFeature.HEART_ASYMMETRY,
     ], sampling_rate=args.sample_frequency)) \
-            .use('tpeaks', lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean, sampling_rate=args.sample_frequency))) \
-            .extract(morphology_domain([MorphologyFeature.TWA])) \
+        .use('tpeaks',
+             lambda ECG_Clean: extract_peaks(delineate(Waves.T_Peak)(ECG_Clean, sampling_rate=args.sample_frequency))) \
+        .extract(morphology_domain([MorphologyFeature.TWA], sampling_rate=args.sample_frequency)) \
         .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv'), use_parquet=False))
 
 if __name__ == "__main__":
