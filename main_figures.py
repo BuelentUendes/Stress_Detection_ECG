@@ -22,6 +22,10 @@ import numpy as np
 COLORS_DICT = {
     'lr': '#E69F00',  # Orange
     'xgboost': '#56B4E9',  # Sky blue
+    "lr_30": "#E69F00",
+    "xgboost_30": "#56B4E9",
+    "lr_60": "#e66400",
+    "xgboost_60": "#568ce9",
     # 'rf': '#009E73',  # Green
     'rf': "#A3D5E0",
     'yellow': '#F0E442',
@@ -33,6 +37,10 @@ COLORS_DICT = {
 
 MODELS_ABBREVIATION_DICT = {
     "lr": "Logistic Regression",
+    "lr_30": "Logistic Regression (30s)",
+    "xgboost_30": "Extreme Gradient Boosting (30s)",
+    "lr_60": "Logistic Regression (60s)",
+    "xgboost_60": "Extreme Gradient Boosting (60s)",
     "rf": "Random Forest",
     "dt": "Decision Tree",
     "knn": "K-nearest Neighbor",
@@ -242,7 +250,8 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
                               metric: str,
                               figures_path_root: str,
                               comparison: str,
-                              window_size: int) -> None:
+                              window_size: int,
+                              window_size_comparison: bool=False) -> None:
     """
     Plot bootstrap results comparison across sample frequencies for multiple models.
 
@@ -253,7 +262,10 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         comparison: What comparison is plotted
         window_size: What window size was used to do the mental stress detection
     """
-    plt.figure(figsize=(8, 6))
+    if window_size_comparison:
+        plt.figure(figsize=(10, 8))
+    else:
+        plt.figure(figsize=(8, 6))
 
     plt.rcParams.update({
         'font.size': 12,
@@ -269,7 +281,11 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
 
     symbol_dict = {
         "lr": 'o',
+        "lr_30": 'o',
+        "lr_60": 'o',
         "xgboost": "s",
+        "xgboost_30": "s",
+        "xgboost_60": "s",
         "rf": "d",
     }
 
@@ -283,10 +299,20 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
     all_models = list(set([model for freq_results in bootstrapped_results.values()
                           for model in freq_results.keys()]))
 
-    # Calculate x-positions
-    x = np.arange(len(sample_freqs))
+    if window_size_comparison:
+        # Sort so lr (30s) and (60s) comes first then xgboost
+        all_models = sorted(all_models, key=lambda x: (x.split('_')[0], int(x.split('_')[1])))
 
-    width_factor = 0.90 if len(all_models) == 3 else 0.5
+    # Calculate x-positions
+    spacing_factor = 2 if len(all_models) > 3 else 1
+    x = np.arange(len(sample_freqs)) * spacing_factor
+
+    if len(all_models) == 2:
+        width_factor = 0.5
+    elif len(all_models) == 3:
+        width_factor = 0.9
+    else:
+        width_factor = 1.0
 
     width = width_factor / len(all_models)  # Adjusted bar width for better spacing
 
@@ -315,7 +341,10 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         ci_upper = np.array(ci_upper)
 
         # Calculate x positions for this model (centered around the frequency position)
-        x_pos = x + (idx - len(all_models)/2 + 0.75) * width
+        if len(all_models) <= 3:
+            x_pos = x + (idx - len(all_models)/2 + 0.75) * width
+        else:
+            x_pos = x + (idx - len(all_models) /2 + 0.75) * width * 1.75
 
         # Plot confidence intervals and means
         valid_idx = ~np.isnan(means)
@@ -365,7 +394,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
     plt.legend(
         loc='upper center',
         bbox_to_anchor=(0.5, -0.15),
-        ncol=len(all_models),
+        ncol=len(all_models) if len(all_models) != 4 else 2,
         fontsize=12,
         frameon=False
     )
@@ -375,7 +404,13 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
 
     # Adjust layout and save
     plt.tight_layout()
-    save_path = os.path.join(figures_path_root, f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window.png')
+    if window_size_comparison:
+        save_path = os.path.join(figures_path_root,
+                             f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window_COMPARISON.png')
+    else:
+        save_path = os.path.join(figures_path_root,
+                             f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window.png')
+
     plt.savefig(save_path, bbox_inches='tight', dpi=500)
     plt.close()
 
@@ -602,6 +637,13 @@ def main(args):
 
     # Collect results for all frequencies
     bootstrapped_results = {}
+
+    args.do_window_comparison = True
+
+    if args.do_window_comparison:
+        bootstrapped_results_window_30 = {}
+        bootstrapped_results_window_comparison = {}
+
     feature_selection_results = {}
 
     for freq in sample_frequencies:
@@ -617,6 +659,36 @@ def main(args):
             )
             for model in args.models
         }
+
+        if args.do_window_comparison:
+            bootstrapped_results_window_30[freq] = {
+            f"{model}_{args.window_size}": load_json_results(
+                RESULTS_PATH,
+                model,
+                freq,
+                args.window_size,
+                comparison,
+                "bootstrap",
+                resampled_bool,
+            )
+            for model in args.models
+        }
+
+            bootstrapped_results_window_comparison[freq] = {
+                f"{model}_{args.window_size_comparison}": load_json_results(
+                    RESULTS_PATH,
+                    model,
+                    freq,
+                    args.window_size_comparison,
+                    comparison,
+                    "bootstrap",
+                    resampled_bool,
+                )
+                for model in args.models
+            }
+
+            for freq, value_dict in bootstrapped_results_window_30.items():
+                bootstrapped_results_window_comparison[freq].update(value_dict)
 
     for model in args.models:
         try:
@@ -646,7 +718,22 @@ def main(args):
     # Plot bootstrap comparisons for each metric
     metrics = ['roc_auc', 'pr_auc', 'balanced_accuracy', 'f1_score']
     for metric in metrics:
-        plot_bootstrap_comparison(bootstrapped_results, metric, FIGURES_PATH, comparison, window_size=args.window_size)
+        plot_bootstrap_comparison(
+            bootstrapped_results,
+            metric,
+            FIGURES_PATH,
+            comparison,
+            window_size=args.window_size,
+        )
+        if args.do_window_comparison:
+            plot_bootstrap_comparison(
+                bootstrapped_results_window_comparison,
+                metric,
+                FIGURES_PATH,
+                comparison,
+                window_size=args.window_size,
+                window_size_comparison=True,
+            )
         plot_feature_subset_comparison(
             results=performance_results_overview,
             metric=metric,
@@ -680,8 +767,14 @@ if __name__ == "__main__":
                         default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
-    parser.add_argument('--window_shift', type=int, default=10,
+    parser.add_argument('--window_shift', type=str, default="20full",
                         help="The window shift that we use for detecting stress")
+    parser.add_argument("--do_window_comparison", help="If set, we compare the different window sizes.",
+                        action="store_true")
+    parser.add_argument("--window_size_comparison", type=int, default=60,
+                        help="The window size we use for the window comparison")
+    parser.add_argument("--window_shift_comparison", type=str, default="20full",
+                        help="The window shift that we use comparison.")
     parser.add_argument(
         "--models",
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
