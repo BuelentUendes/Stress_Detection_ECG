@@ -5,14 +5,12 @@
 import os
 import json
 import argparse
-import pickle
-from typing import Any
 import warnings
 
-from sympy.abc import alpha
 
 warnings.filterwarnings("ignore")
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
@@ -63,6 +61,35 @@ def check_significance(result):
     else:
         return "significant"
 
+
+def calculate_differences(perf_dict, model1, model2):
+    """Calculate difference as model1 - model2 for all metrics"""
+    return {
+        metric: perf_dict[model1][metric] - perf_dict[model2][metric]
+        for metric in perf_dict[model1]
+    }
+
+
+def get_one_sided_p(delta_list, threshold, hypothesis="greater"):
+    """
+    delta_list: list of bootstrap differences Δ_i = metric_A − metric_B
+    Returns the one-sided p-value for H1: Δ > 0.
+    threshold: Given that there is no difference (zero mean), how likely is it to observe such a difference?
+    """
+    B = len(delta_list)
+    mean_delta = sum(delta_list) / B
+
+    # Center the bootstrap cloud so H0: Δ=0
+    null_dist = [d - mean_delta for d in delta_list]
+
+    # p = fraction of null-dist >= 0
+    if hypothesis == "greater":
+        p_val = sum(1 for d in null_dist if d >= threshold) / B
+    elif hypothesis == "unequal":
+        p_val = sum(1 for d in null_dist if abs(d) >= abs(threshold)) / B
+    return p_val
+
+
 def main(args):
 
     target_data_path = os.path.join(FEATURE_DATA_PATH, str(args.sample_frequency), str(args.window_size),
@@ -90,12 +117,16 @@ def main(args):
     model_comparisons = args.model_comparisons.split(",")
     model_dict = {}
     f1_score_thresholds = {}
+    performance_means = {}
     root_path = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison)
     for model_name in model_comparisons:
         # get the model ( we find the best optimization parameter in the history
         file_path = os.path.join(root_path, model_name, "history")
         file_path_threshold = os.path.join(root_path, model_name, "best_model_weights")
         file_name = f"{args.resampling_method}_{model_name}_optimization_history.json"
+        performance_path = os.path.join(root_path, model_name, "bootstrap_test")
+        performance_file_name = f"{args.resampling_method}_{model_name}_bootstrapped.json"
+
         model_weights = load_best_params(file_path, file_name)
         model = get_ml_model(model_name, params=model_weights)
         model.fit(train_data[0], train_data[1])
@@ -103,15 +134,25 @@ def main(args):
         with open(os.path.join(file_path_threshold, f"classification_threshold_{args.resampling_method}.json"), "r") as f:
             # We set the best threshold to detect
             classification_threshold = json.load(f)["classification_threshold f1"]
+        with open(os.path.join(performance_path, performance_file_name)) as f:
+            performance_dict = json.load(f)
+            performance_values = {
+                metric: values["mean"] for metric, values in performance_dict.items()
+            }
+            performance_means[model_name] = performance_values
         f1_score_thresholds[model_name] = classification_threshold
+
 
     X_test, y_test, label_test = test_data
     results = {
-        'diff_roc_auc': [],
-        'diff_pr_auc': [],
-        'diff_balanced_accuracy': [],
-        'diff_f1_score': [],
+        'roc_auc': [],
+        'pr_auc': [],
+        'balanced_accuracy': [],
+        'f1_score': [],
     }
+
+    mean_difference_to_check = calculate_differences(performance_means, args.model_comparisons.split(",")[0],
+                                                     args.model_comparisons.split(",")[1])
 
     for idx in tqdm(range(args.bootstrap_samples), desc="Bootstrapping", unit="it"):
         X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
@@ -130,10 +171,27 @@ def main(args):
             balanced_accuracy_score_list.append(balanced_accuracy_score)
             f1_score_list.append(f1_score)
 
-        results["diff_roc_auc"].append(roc_auc_list[0] - roc_auc_list[1])
-        results["diff_pr_auc"].append(pr_auc_list[0] - pr_auc_list[1])
-        results["diff_balanced_accuracy"].append(balanced_accuracy_score_list[0] - balanced_accuracy_score_list[1])
-        results["diff_f1_score"].append(f1_score_list[0] - f1_score_list[1])
+        results["roc_auc"].append(roc_auc_list[0] - roc_auc_list[1])
+        results["pr_auc"].append(pr_auc_list[0] - pr_auc_list[1])
+        results["balanced_accuracy"].append(balanced_accuracy_score_list[0] - balanced_accuracy_score_list[1])
+        results["f1_score"].append(f1_score_list[0] - f1_score_list[1])
+
+
+    # Plot here histpgram
+    # ROC -AUC
+    plt.hist(results["roc_auc"], bins=30)
+    plt.axvline(0, linestyle="--")
+    plt.title("Bootstrap distribution of ROC-AUC differences")
+    plt.xlabel("Δ ROC-AUC (A–B)")
+    plt.ylabel("Count")
+    plt.show()
+    plt.close()
+
+    p_values = {
+        metric: get_one_sided_p(diffs, mean_difference_to_check[metric])
+        for metric, diffs in results.items()
+    }
+    print("One-sided bootstrap p-values:", p_values)
 
     final_diff_results_alpha10 = get_confidence_interval_mean(results,
                                                       bootstrap_method=args.bootstrap_method,
@@ -185,10 +243,10 @@ if __name__ == "__main__":
     parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
-                        default=1000, type=int)
+                        default=250, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
-    parser.add_argument('--window_shift', type=str, default=10,
+    parser.add_argument('--window_shift', type=str, default='10full',
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
