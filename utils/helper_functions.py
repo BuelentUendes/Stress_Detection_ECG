@@ -1948,22 +1948,23 @@ def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap, f1_thre
     return roc_auc, pr_auc, balanced_accuracy, f1_score, accuracy
 
 
-def get_confidence_interval_mean(results: dict, bootstrap_method: str) -> dict:
+def get_confidence_interval_mean(results: dict, bootstrap_method: str, alpha=5.0) -> dict:
     # Calculate confidence intervals and means
     final_results = {}
+
     for metric in results.keys():
         values = np.array(results[metric])
         mean_val = np.mean(values)
         if bootstrap_method == "quantile":
-            ci_lower = np.percentile(values, 2.5)  # 2.5th percentile for lower bound
-            ci_upper = np.percentile(values, 97.5)  # 97.5th percentile for upper bound
+            ci_lower = np.percentile(values, alpha/2)  # 2.5th percentile for lower bound
+            ci_upper = np.percentile(values, 100-(alpha/2))  # 97.5th percentile for upper bound
         else:
             raise NotImplementedError("We have not implemented 'se' and 'BCa'")
 
         final_results[metric] = {
             'mean': np.round(mean_val, 4),
             'ci_lower': np.round(ci_lower, 4),
-            'ci_upper': np.round(ci_upper, 4)
+            'ci_upper': np.round(ci_upper, 4),
         }
 
     return final_results
@@ -2342,6 +2343,7 @@ class FeatureSelectionPipeline:
             train_data: tuple[np.ndarray, np.ndarray],
             val_data: tuple[np.ndarray, np.ndarray],
             feature_names: list[str] = None,
+            top_k_features: int = None,
             save_path: Optional[str] = None) -> None:
         """
         Fit the feature selection pipeline using provided train/val sets.
@@ -2350,6 +2352,7 @@ class FeatureSelectionPipeline:
             train_data: Tuple of (X_train, y_train)
             val_data: Tuple of (X_val, y_val)
             feature_names: List of feature names
+            top_k_features: How many features are used
             save_path: Path to cache hyperparameters. If None, no saving is done.
         """
         X_train, y_train, _ = train_data
@@ -2447,13 +2450,13 @@ class FeatureSelectionPipeline:
             )
         }
 
-        with open(os.path.join(save_path, "feature_selection_results.json"), 'w') as f:
+        with open(os.path.join(save_path, f"feature_selection_results_{top_k_features}.json"), 'w') as f:
             json.dump(self.cv_results, f, indent=4)  # Save results in JSON format
 
-        with open(os.path.join(save_path, "feature_importance_report.json"), "w") as f:
+        with open(os.path.join(save_path, f"feature_importance_report_{top_k_features}.json"), "w") as f:
             json.dump(self.feature_importance, f, indent=4)
 
-        with open(os.path.join(save_path, "feature_importance_total_selected.json"), "w") as f:
+        with open(os.path.join(save_path, f"feature_importance_total_selected_{top_k_features}.json"), "w") as f:
             json.dump(history_feature_selection, f, indent=4)
 
 
