@@ -22,10 +22,14 @@ import numpy as np
 COLORS_DICT = {
     'lr': '#E69F00',  # Orange
     'xgboost': '#56B4E9',  # Sky blue
-    "lr_30": "#E69F00",
-    "xgboost_30": "#56B4E9",
-    "lr_60": "#e66400",
-    "xgboost_60": "#568ce9",
+    "lr_30": '#E69F00',
+    "xgboost_30": '#56B4E9',
+    "lr_60": '#E69F00',
+    "xgboost_60": '#56B4E9',
+    "lr_baseline": '#E69F00',
+    "xgboost_baseline": '#56B4E9',
+    "lr_base_lpa_mpa": "#E69F00",
+    "xgboost_base_lpa_mpa": "#56B4E9",
     # 'rf': '#009E73',  # Green
     'rf': "#A3D5E0",
     'yellow': '#F0E442',
@@ -41,6 +45,10 @@ MODELS_ABBREVIATION_DICT = {
     "xgboost_30": "Extreme Gradient Boosting (30s)",
     "lr_60": "Logistic Regression (60s)",
     "xgboost_60": "Extreme Gradient Boosting (60s)",
+    "lr_baseline": "Logistic Regression (mental stress vs. seated baseline)",
+    "xgboost_baseline": "Extreme Gradient Boosting (mental stress vs. seated baseline)",
+    "lr_base_lpa_mpa": "Logistic Regression (mental stress vs. seated baseline / physical activities)",
+    "xgboost_base_lpa_mpa": "Extreme Gradient Boosting (mental stress vs. seated baseline / physical activities)",
     "rf": "Random Forest",
     "dt": "Decision Tree",
     "knn": "K-nearest Neighbor",
@@ -251,7 +259,8 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
                               figures_path_root: str,
                               comparison: str,
                               window_size: int,
-                              window_size_comparison: bool=False) -> None:
+                              window_size_comparison: bool=False,
+                              baseline_comparison: bool=False) -> None:
     """
     Plot bootstrap results comparison across sample frequencies for multiple models.
 
@@ -261,8 +270,9 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         figures_path_root: Path to save the figure
         comparison: What comparison is plotted
         window_size: What window size was used to do the mental stress detection
+        baseline_comparison: If set, then we do baseline comparison
     """
-    if window_size_comparison:
+    if window_size_comparison or baseline_comparison:
         plt.figure(figsize=(10, 8))
     else:
         plt.figure(figsize=(8, 6))
@@ -283,9 +293,13 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         "lr": 'o',
         "lr_30": 'o',
         "lr_60": 'o',
+        "lr_baseline": 'o',
+        "lr_base_lpa_mpa": "o",
         "xgboost": "s",
         "xgboost_30": "s",
         "xgboost_60": "s",
+        "xgboost_baseline": "s",
+        "xgboost_base_lpa_mpa": "s",
         "rf": "d",
     }
 
@@ -299,9 +313,23 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
     all_models = list(set([model for freq_results in bootstrapped_results.values()
                           for model in freq_results.keys()]))
 
+    if not (window_size_comparison or baseline_comparison):
+        all_models = sorted(all_models)
+
     if window_size_comparison:
         # Sort so lr (30s) and (60s) comes first then xgboost
         all_models = sorted(all_models, key=lambda x: (x.split('_')[0], int(x.split('_')[1])))
+
+    if baseline_comparison:
+        label_order = ["base_lpa_mpa", "baseline"]
+        # Sort so lr_baseline, then lr_base_lpa_mpa
+        all_models = sorted(
+            all_models,
+            key=lambda name: (
+                name.split("_", 1)[0],  # e.g. "lr"
+                label_order.index(name.split("_", 1)[1])  # 0 for "baseline", 1 for "base_lpa_mpa"
+            )
+        )
 
     # Calculate x-positions
     spacing_factor = 2 if len(all_models) > 3 else 1
@@ -318,7 +346,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
 
     # Plot for each model
     handles = []
-    for idx, model in enumerate(all_models):
+    for idx, model in enumerate(all_models, start=1):
         means = []
         ci_lower = []
         ci_upper = []
@@ -352,9 +380,15 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
             handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
                                 yerr=[means[valid_idx] - ci_lower[valid_idx],
                                      ci_upper[valid_idx] - means[valid_idx]],
-                                fmt=symbol_dict[model], capsize=5, capthick=2, markersize=6,
-                                color=COLORS_DICT[model], label=MODELS_ABBREVIATION_DICT[model],
+                                fmt=symbol_dict[model],
+                                capsize=5, capthick=2, markersize=6,
+                                color=COLORS_DICT[model],
+                                label='_nolegend_' if len(all_models) == 4 else MODELS_ABBREVIATION_DICT[model],
                                 elinewidth=2)
+
+            if (baseline_comparison or window_size_comparison) and idx in (2, 4):
+                for whisker in handle[2]:
+                    whisker.set_linestyle(':')
 
             # Adjusted label placement to avoid overlapping
             y_positions = []  # Track annotated y-positions
@@ -375,6 +409,20 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
 
             handles.append(handle)
 
+
+    if len(all_models) == 4:
+        # Create custom legend handles without markers
+        legend_handles = []
+        for idx, model in enumerate(all_models, start=1):
+            # Set linestyle based on idx
+            linestyle = ':' if idx in (2, 4) else '-'
+
+            # Create a line-only legend handle (no markers)
+            legend_handle = plt.Line2D([0], [0], color=COLORS_DICT[model],
+                                       linewidth=2, linestyle=linestyle,
+                                       label=MODELS_ABBREVIATION_DICT[model])
+            legend_handles.append(legend_handle)
+
     # Customize plot
     plt.xlabel('Sampling Frequency (Hz)')
 
@@ -391,13 +439,31 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
     # Set x-ticks to sample frequencies
     plt.xticks(x, [str(freq) for freq in sample_freqs])
 
-    plt.legend(
-        loc='upper center',
-        bbox_to_anchor=(0.5, -0.15),
-        ncol=len(all_models) if len(all_models) != 4 else 2,
-        fontsize=12,
-        frameon=False
-    )
+    if baseline_comparison:
+        # We have a long description which is why we should have them all in 1 coloum
+        ncol_len = 1
+
+    else:
+        ncol_len = len(all_models) if len(all_models) != 4 else 2
+
+    if len(all_models) != 4:
+        plt.legend(
+            loc='upper center',
+            bbox_to_anchor=(0.5, -0.15),
+            ncol=ncol_len,
+            fontsize=12,
+            frameon=False,
+        )
+
+    else:
+        plt.legend(
+            handles=legend_handles,
+            loc='upper center',
+            bbox_to_anchor=(0.5, -0.15),
+            ncol=ncol_len,
+            fontsize=12,
+            frameon=False,
+        )
 
     # Add grid
     plt.grid(False)
@@ -407,6 +473,11 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
     if window_size_comparison:
         save_path = os.path.join(figures_path_root,
                              f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window_COMPARISON.png')
+
+    elif baseline_comparison:
+        save_path = os.path.join(figures_path_root,
+                             f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window_BASELINE_COMPARISON.png')
+
     else:
         save_path = os.path.join(figures_path_root,
                              f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window.png')
@@ -611,6 +682,10 @@ def main(args):
     sample_frequencies = [125, 250, 500, 1000]  # Add or modify frequencies as needed
 
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
+
+    if args.do_baseline_comparison:
+        comparison_baseline = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT['baseline']}"
+
     figures_path = os.path.join(FIGURES_PATH, str(args.sample_frequency),
                                     str(args.window_size), comparison)
     # We use this to either get the results from smote or not
@@ -644,6 +719,10 @@ def main(args):
         bootstrapped_results_window_30 = {}
         bootstrapped_results_window_comparison = {}
 
+    if args.do_baseline_comparison:
+        bootstrapped_results_base_lpa_mpa = {}
+        bootstrapped_results_baseline_comparison = {}
+
     feature_selection_results = {}
 
     for freq in sample_frequencies:
@@ -673,7 +752,6 @@ def main(args):
             )
             for model in args.models
         }
-
             bootstrapped_results_window_comparison[freq] = {
                 f"{model}_{args.window_size_comparison}": load_json_results(
                     RESULTS_PATH,
@@ -689,6 +767,39 @@ def main(args):
 
             for freq, value_dict in bootstrapped_results_window_30.items():
                 bootstrapped_results_window_comparison[freq].update(value_dict)
+
+        if args.do_baseline_comparison:
+
+            bootstrapped_results_base_lpa_mpa[freq] = {
+                f"{model}_{args.negative_class}": load_json_results(
+                    RESULTS_PATH,
+                    model,
+                    freq,
+                    args.window_size,
+                    comparison,
+                    "bootstrap",
+                    resampled_bool,
+                )
+                for model in args.models
+            }
+
+            bootstrapped_results_baseline_comparison[freq] = {
+                f"{model}_baseline": load_json_results(
+                    RESULTS_PATH,
+                    model,
+                    freq,
+                    args.window_size,
+                    comparison_baseline,
+                    "bootstrap",
+                    resampled_bool,
+                )
+                for model in args.models
+            }
+
+            for freq, value_dict in bootstrapped_results_base_lpa_mpa.items():
+                bootstrapped_results_baseline_comparison[freq].update(value_dict)
+
+        # Now we can do the comparison conditions
 
     for model in args.models:
         try:
@@ -734,6 +845,18 @@ def main(args):
                 window_size=args.window_size,
                 window_size_comparison=True,
             )
+
+        if args.do_baseline_comparison:
+            plot_bootstrap_comparison(
+                bootstrapped_results_baseline_comparison,
+                metric,
+                FIGURES_PATH,
+                comparison,
+                window_size=args.window_size,
+                window_size_comparison=False,
+                baseline_comparison=True
+            )
+
         plot_feature_subset_comparison(
             results=performance_results_overview,
             metric=metric,
@@ -767,7 +890,7 @@ if __name__ == "__main__":
                         default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
-    parser.add_argument('--window_shift', type=str, default="20full",
+    parser.add_argument('--window_shift', type=str, default="10full",
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--do_window_comparison", help="If set, we compare the different window sizes.",
                         action="store_true")
@@ -775,6 +898,9 @@ if __name__ == "__main__":
                         help="The window size we use for the window comparison")
     parser.add_argument("--window_shift_comparison", type=str, default="20full",
                         help="The window shift that we use comparison.")
+    parser.add_argument("--do_baseline_comparison", help="If set, we compare the results between different"
+                                                         "classification conditions",
+                        action="store_true")
     parser.add_argument(
         "--models",
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
