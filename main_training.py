@@ -12,7 +12,6 @@ import optuna
 import numpy as np
 import itertools
 from sklearn import metrics
-from sklearn.mixture import GaussianMixture
 from sklearn.base import clone, BaseEstimator
 from optuna.trial import Trial
 import json
@@ -468,6 +467,7 @@ def main(args):
 
         feature_selector.fit(train_data_feature_selection, val_data_feature_selection,
                              feature_names=feature_names,
+                             top_k_features=args.top_k_features,
                              save_path=results_path_feature_selection)
 
         # best_feature_mask has 104 features
@@ -549,6 +549,7 @@ def main(args):
         ),
         verbose=args.verbose)
 
+
     # Save model weights and threshold for classification so I can later retrieve it for cohen's kappa calculation
     # Save the model weights so we can later load them for cohen's kappa
     with open(os.path.join(results_path_model_weights, f"best_model_weights_{args.resampling_method}.pkl"), "wb") as f:
@@ -621,7 +622,6 @@ def main(args):
             json.dump(final_bootstrapped_results[0], f, indent=4)
 
         if not args.leave_one_out:
-            #ToDo: Refactor this as well!
             with open(os.path.join(results_path_bootstrap_train_performance, save_name_overall), "w") as f:
                 json.dump(final_bootstrapped_results_train[0], f, indent=4)
 
@@ -685,34 +685,35 @@ def main(args):
                 feature_selection=args.use_feature_selection,
                 max_display=10)
 
-        if args.get_cohens_kappa:
-            model_comparisons = args.model_comparisons.split(",")
-            model_dict = {}
-            root_path= os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison)
-            file_name = f"best_model_weights_{args.resampling_method}"
-            for model in model_comparisons:
-                file_path = os.path.join(root_path, model, "best_model_weights")
-                with open(os.path.join(file_path, f"classification_threshold_{args.resampling_method}.json"), "r") as f:
-                    # We set the best threshold to detect
-                    classification_threshold = json.load(f)["classification_threshold f1"]
-                model_dict[model] = (load_best_model(file_path, file_name), classification_threshold)
+    if args.get_cohens_kappa:
+        model_comparisons = args.model_comparisons.split(",")
+        model_dict = {}
+        root_path= os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison)
+        file_name = f"best_model_weights_{args.resampling_method}"
+        for model in model_comparisons:
+            file_path = os.path.join(root_path, model, "best_model_weights")
+            with open(os.path.join(file_path, f"classification_threshold_{args.resampling_method}.json"), "r") as f:
+                # We set the best threshold to detect
+                classification_threshold = json.load(f)["classification_threshold f1"]
+            model_dict[model] = (load_best_model(file_path, file_name), classification_threshold)
 
-            final_cohen_results = {}
-            for (ml_model_1, model_threshold_pair_1), (ml_model_2, model_threshold_pair_2) in itertools.combinations(model_dict.items(), 2):
-                bootstrapped_cohen = get_bootstrapped_cohens_kappa(
-                    model_threshold_pair_1[0], model_threshold_pair_1[1],
-                    model_threshold_pair_2[0], model_threshold_pair_2[1],
-                    test_data, args.bootstrap_samples, args.bootstrap_method
-                )
-                final_cohen_results[f"{ml_model_1}_{ml_model_2}"] = bootstrapped_cohen
+        final_cohen_results = {}
+        for (ml_model_1, model_threshold_pair_1), (ml_model_2, model_threshold_pair_2) in itertools.combinations(model_dict.items(), 2):
+            bootstrapped_cohen = get_bootstrapped_cohens_kappa(
+                model_threshold_pair_1[0], model_threshold_pair_1[1],
+                model_threshold_pair_2[0], model_threshold_pair_2[1],
+                test_data, args.bootstrap_samples, args.bootstrap_method
+            )
+            final_cohen_results[f"{ml_model_1}_{ml_model_2}"] = bootstrapped_cohen
 
-            print(final_cohen_results)
-            # Good paper for comparison of cohens kappa:
-            # https: // pmc.ncbi.nlm.nih.gov / articles / PMC3900052 /  # t3-biochem-med-22-3-276-4
+        print(final_cohen_results)
+        # Good paper for comparison of cohens kappa:
+        # https: // pmc.ncbi.nlm.nih.gov / articles / PMC3900052 /  # t3-biochem-med-22-3-276-4
 
-            # Save cohen kappa results:
-            with open(os.path.join(root_path, f"cohen_kappa_{args.resampling_method}.json"), "w") as f:
-                json.dump(final_cohen_results, f, indent=4)
+        # Save cohen kappa results:
+        with open(os.path.join(root_path, f"cohen_kappa_{args.resampling_method}.json"), "w") as f:
+            json.dump(final_cohen_results, f, indent=4)
+
 
 
 if __name__ == "__main__":
@@ -734,7 +735,7 @@ if __name__ == "__main__":
                         default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
-    parser.add_argument('--window_shift', type=float, default=10,
+    parser.add_argument('--window_shift', type=str, default='10full',
                         help="The window shift that we use for detecting stress")
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "

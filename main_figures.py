@@ -47,8 +47,8 @@ MODELS_ABBREVIATION_DICT = {
     "xgboost_60": "Extreme Gradient Boosting (60s)",
     "lr_baseline": "Logistic Regression (mental stress vs. seated baseline)",
     "xgboost_baseline": "Extreme Gradient Boosting (mental stress vs. seated baseline)",
-    "lr_base_lpa_mpa": "Logistic Regression (mental stress vs. seated baseline / physical activities)",
-    "xgboost_base_lpa_mpa": "Extreme Gradient Boosting (mental stress vs. seated baseline / physical activities)",
+    "lr_base_lpa_mpa": "Logistic Regression (mental stress vs. seated baseline, low and moderate physical activities)",
+    "xgboost_base_lpa_mpa": "Extreme Gradient Boosting (mental stress vs. seated baseline, low and moderate physical activities)",
     "rf": "Random Forest",
     "dt": "Decision Tree",
     "knn": "K-nearest Neighbor",
@@ -196,7 +196,7 @@ def load_json_feature_selection_results(
     for suffix in middle_suffix:
         save_name = f"{prefix}_{model_name}_{suffix}.json"
         feature_number_dict = {
-            "bootstrapped": 47,
+            "bootstrapped": 55,
             "feature_selection_subset_features_top_20_bootstrapped": 20,
             "feature_selection_subset_features_top_10_bootstrapped": 10,
             "feature_selection_subset_features_top_5_bootstrapped": 5,
