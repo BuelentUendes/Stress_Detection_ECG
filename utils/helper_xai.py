@@ -292,9 +292,9 @@ def create_feature_name_dict():
         "min_power_hf_band": "Minimum power in HF band",
         "mean_power_vhf_band": "Mean power in VHF band",
         "entropy_power_hf_band": "Entropy of power in HF band",
-
-
-
+        "nk_pnn20": "PNN20",
+        "nk_mean_nn": "AVNN",
+        "ials": "IALS"
 
     }
     return feature_dict
