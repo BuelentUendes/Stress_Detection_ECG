@@ -176,15 +176,15 @@ def main(args):
         results["f1_score"].append(f1_score_list[0] - f1_score_list[1])
 
 
-    # Plot here histpgram
-    # ROC -AUC
-    plt.hist(results["roc_auc"], bins=30)
-    plt.axvline(0, linestyle="--")
-    plt.title("Bootstrap distribution of ROC-AUC differences")
-    plt.xlabel("Δ ROC-AUC (A–B)")
-    plt.ylabel("Count")
-    plt.show()
-    plt.close()
+    # # Plot here histpgram
+    # # ROC -AUC
+    # plt.hist(results["roc_auc"], bins=30)
+    # plt.axvline(0, linestyle="--")
+    # plt.title("Bootstrap distribution of ROC-AUC differences")
+    # plt.xlabel("Δ ROC-AUC (A–B)")
+    # plt.ylabel("Count")
+    # plt.show()
+    # plt.close()
 
     p_values = {
         metric: get_one_sided_p(diffs, mean_difference_to_check[metric])
@@ -239,9 +239,10 @@ if __name__ == "__main__":
                                                   "Choose from 'standard_scaler' or 'min_max'",
                         type=validate_scaler,
                         default="standard_scaler")
+    parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
-                        default=1000, type=int)
+                        default=125, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default='10full',
