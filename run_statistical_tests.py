@@ -9,14 +9,13 @@ import warnings
 
 
 warnings.filterwarnings("ignore")
-import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
+from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH
 from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
     get_resampled_data, get_performance_metric_bootstrapped, get_confidence_interval_mean)
-from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
+from utils.helper_argparse import validate_scaler, validate_category,  validate_ml_model, \
     validate_resampling_method, validate_feature_subset
 from main_training import load_best_params
 
@@ -240,10 +239,9 @@ if __name__ == "__main__":
                                                   "Choose from 'standard_scaler' or 'min_max'",
                         type=validate_scaler,
                         default="standard_scaler")
-    parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
-                        default=250, type=int)
+                        default=1000, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default='10full',
@@ -262,31 +260,10 @@ if __name__ == "__main__":
                         help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
                         default="quantile")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
-    parser.add_argument("--use_feature_selection", action="store_true",
-                        help="Boolean. If set, we use feature selection")
-    parser.add_argument("--min_features", type=int, default=5,
-                       help="Minimum number of features to select")
-    parser.add_argument("--max_features", type=int, default=50,
-                       help="Maximum number of features to select")
-    parser.add_argument("--use_feature_subset",
-                        help="instead of using full set of features, use only a subset of features "
-                             "defined in args.subset",
-                        action="store_true")
-    parser.add_argument("--feature_subset",
-                        help="What feature subset to use. Only used when 'use_feature_subset' is set to true",
-                        type=validate_feature_subset,
-                        default="w,wmax,nn20,nn50")
-    parser.add_argument("--use_top_features",
-                        help="If set, we use the top features that were selected 100% of the time during feature selection",
-                        action="store_true")
-    parser.add_argument("--top_k_features",
-                        help="If use top features is set, how many features we want to select.",
-                        default=3, type=int)
-    parser.add_argument("--use_random_subset_features",
-                        help="If set, we use a random subset of features.",
-                        action="store_true")
+
     parser.add_argument("--model_comparisons", default="xgboost,lr",
                         help="For which models we want to get the significance test.")
+
     parser.add_argument("--alpha", default=5.0, type=float,
                         help="Alpha significance level.")
     parser.add_argument("--save_feature_plots", action="store_true",
