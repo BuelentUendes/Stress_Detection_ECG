@@ -254,238 +254,6 @@ def load_json_results(path: str,
         return None
 
 
-def plot_bootstrap_comparison(bootstrapped_results: dict,
-                              metric: str,
-                              figures_path_root: str,
-                              comparison: str,
-                              window_size: int,
-                              window_size_comparison: bool=False,
-                              baseline_comparison: bool=False) -> None:
-    """
-    Plot bootstrap results comparison across sample frequencies for multiple models.
-
-    Args:
-        bootstrapped_results: Nested dict {sample_freq: {model: results}}
-        metric: Metric to plot ('roc_auc', 'pr_auc', 'precision')
-        figures_path_root: Path to save the figure
-        comparison: What comparison is plotted
-        window_size: What window size was used to do the mental stress detection
-        baseline_comparison: If set, then we do baseline comparison
-    """
-    if window_size_comparison or baseline_comparison:
-        plt.figure(figsize=(10, 8))
-    else:
-        plt.figure(figsize=(8, 6))
-
-    plt.rcParams.update({
-        'font.size': 12,
-        'font.family': 'Times New Roman',
-        'axes.labelsize': 14,
-        'axes.titlesize': 12,
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
-        'legend.fontsize': 12,
-        'legend.edgecolor': 'black',
-        'figure.dpi': 500,
-    })
-
-    symbol_dict = {
-        "lr": 'o',
-        "lr_30": 'o',
-        "lr_60": 'o',
-        "lr_baseline": 'o',
-        "lr_base_lpa_mpa": "o",
-        "xgboost": "s",
-        "xgboost_30": "s",
-        "xgboost_60": "s",
-        "xgboost_baseline": "s",
-        "xgboost_base_lpa_mpa": "s",
-        "rf": "d",
-    }
-
-    # Remove top and right spines
-    ax = plt.gca()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-
-    # Get all sample frequencies and models (sorted)
-    sample_freqs = sorted(bootstrapped_results.keys())
-    all_models = list(set([model for freq_results in bootstrapped_results.values()
-                          for model in freq_results.keys()]))
-
-    if not (window_size_comparison or baseline_comparison):
-        all_models = sorted(all_models)
-
-    if window_size_comparison:
-        # Sort so lr (30s) and (60s) comes first then xgboost
-        all_models = sorted(all_models, key=lambda x: (x.split('_')[0], int(x.split('_')[1])))
-
-    if baseline_comparison:
-        label_order = ["base_lpa_mpa", "baseline"]
-        # Sort so lr_baseline, then lr_base_lpa_mpa
-        all_models = sorted(
-            all_models,
-            key=lambda name: (
-                name.split("_", 1)[0],  # e.g. "lr"
-                label_order.index(name.split("_", 1)[1])  # 0 for "baseline", 1 for "base_lpa_mpa"
-            )
-        )
-
-    # Calculate x-positions
-    spacing_factor = 2 if len(all_models) > 3 else 1
-    x = np.arange(len(sample_freqs)) * spacing_factor
-
-    if len(all_models) == 2:
-        width_factor = 0.5
-    elif len(all_models) == 3:
-        width_factor = 0.9
-    else:
-        width_factor = 1.0
-
-    width = width_factor / len(all_models)  # Adjusted bar width for better spacing
-
-    # Plot for each model
-    handles = []
-    for idx, model in enumerate(all_models, start=1):
-        means = []
-        ci_lower = []
-        ci_upper = []
-
-        # Collect data for this model across all frequencies
-        for freq in sample_freqs:
-            results = bootstrapped_results[freq].get(model)
-            if results and metric in results:
-                means.append(results[metric]['mean'])
-                ci_lower.append(results[metric]['ci_lower'])
-                ci_upper.append(results[metric]['ci_upper'])
-            else:
-                means.append(np.nan)
-                ci_lower.append(np.nan)
-                ci_upper.append(np.nan)
-
-        # Convert to numpy arrays
-        means = np.array(means)
-        ci_lower = np.array(ci_lower)
-        ci_upper = np.array(ci_upper)
-
-        # Calculate x positions for this model (centered around the frequency position)
-        if len(all_models) <= 3:
-            x_pos = x + (idx - len(all_models)/2 + 0.75) * width
-        else:
-            x_pos = x + (idx - len(all_models) /2 + 0.75) * width * 1.75
-
-        # Plot confidence intervals and means
-        valid_idx = ~np.isnan(means)
-        if np.any(valid_idx):
-            handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
-                                yerr=[means[valid_idx] - ci_lower[valid_idx],
-                                     ci_upper[valid_idx] - means[valid_idx]],
-                                fmt=symbol_dict[model],
-                                capsize=5, capthick=2, markersize=6,
-                                color=COLORS_DICT[model],
-                                label='_nolegend_' if len(all_models) == 4 else MODELS_ABBREVIATION_DICT[model],
-                                elinewidth=2)
-
-            if (baseline_comparison or window_size_comparison) and idx in (2, 4):
-                for whisker in handle[2]:
-                    whisker.set_linestyle(':')
-
-            # Adjusted label placement to avoid overlapping
-            y_positions = []  # Track annotated y-positions
-            offset = 0.015 * (max(means) - min(means))  # Adaptive offset for better spacing
-
-            for i, (pos, mean) in enumerate(zip(x_pos[valid_idx], means[valid_idx])):
-                new_y = mean
-                while any(abs(new_y - y) < offset for y in y_positions):
-                    new_y -= offset  # Shift up if overlap detected
-
-                plt.text(pos + width/36, new_y, f' {mean:.3f}',
-                         ha='left', va='center',
-                         color='black',
-                         fontsize=12,
-                         weight="bold")
-
-                y_positions.append(new_y)  # Store adjusted y-position
-
-            handles.append(handle)
-
-
-    if len(all_models) == 4:
-        # Create custom legend handles without markers
-        legend_handles = []
-        for idx, model in enumerate(all_models, start=1):
-            # Set linestyle based on idx
-            linestyle = ':' if idx in (2, 4) else '-'
-
-            # Create a line-only legend handle (no markers)
-            legend_handle = plt.Line2D([0], [0], color=COLORS_DICT[model],
-                                       linewidth=2, linestyle=linestyle,
-                                       label=MODELS_ABBREVIATION_DICT[model])
-            legend_handles.append(legend_handle)
-
-    # Customize plot
-    plt.xlabel('Sampling Frequency (Hz)')
-
-    # Simplified metric name on y-axis
-    metric_labels = {
-        'roc_auc': 'AUROC',
-        'pr_auc': 'AUPRC',
-        'precision': 'Precision',
-        'balanced_accuracy': 'Balanced Accuracy',
-        'f1_score': "F1-Score"
-    }
-    plt.ylabel(metric_labels.get(metric, metric))
-
-    # Set x-ticks to sample frequencies
-    plt.xticks(x, [str(freq) for freq in sample_freqs])
-
-    if baseline_comparison:
-        # We have a long description which is why we should have them all in 1 coloum
-        ncol_len = 1
-
-    else:
-        ncol_len = len(all_models) if len(all_models) != 4 else 2
-
-    if len(all_models) != 4:
-        plt.legend(
-            loc='upper center',
-            bbox_to_anchor=(0.5, -0.15),
-            ncol=ncol_len,
-            fontsize=12,
-            frameon=False,
-        )
-
-    else:
-        plt.legend(
-            handles=legend_handles,
-            loc='upper center',
-            bbox_to_anchor=(0.5, -0.15),
-            ncol=ncol_len,
-            fontsize=12,
-            frameon=False,
-        )
-
-    # Add grid
-    plt.grid(False)
-
-    # Adjust layout and save
-    plt.tight_layout()
-    if window_size_comparison:
-        save_path = os.path.join(figures_path_root,
-                             f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window_COMPARISON.png')
-
-    elif baseline_comparison:
-        save_path = os.path.join(figures_path_root,
-                             f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window_BASELINE_COMPARISON.png')
-
-    else:
-        save_path = os.path.join(figures_path_root,
-                             f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window.png')
-
-    plt.savefig(save_path, bbox_inches='tight', dpi=500)
-    plt.close()
-
-
 def plot_feature_selection(
         feature_selection_dict: dict,
         figures_path_root: str,
@@ -513,6 +281,7 @@ def plot_feature_selection(
     save_path = os.path.join(figures_path_root, f'feature_selection.png')
     plt.savefig(save_path, dpi=500, bbox_inches='tight')
     plt.close()
+
 
 def plot_feature_subset_comparison(results: dict,
                                    metric: str,
@@ -677,6 +446,339 @@ def plot_feature_subset_comparison(results: dict,
     plt.savefig(save_path, bbox_inches='tight', dpi=500)
     plt.close()
 
+
+def load_statistical_results(path, sample_frequency, window_size, task, model_comparison, alpha_levels=[1,5,10]):
+    statistical_performance_results = {}
+    file_name_root = f"statistical_test_" + model_comparison.replace(",", "_")
+
+    for alpha in alpha_levels:
+        with open(os.path.join(path, str(sample_frequency), str(window_size), task, f"{file_name_root}_alpha_{str(alpha)}.json")) as f:
+            statistical_performance_results[f"alpha_{str(alpha)}"] = json.load(f)
+
+    return statistical_performance_results
+
+
+# New statistical test:
+def plot_bootstrap_comparison(bootstrapped_results: dict,
+                              metric: str,
+                              figures_path_root: str,
+                              comparison: str,
+                              window_size: int,
+                              window_size_comparison: bool = False,
+                              baseline_comparison: bool = False,
+                              show_significance: bool = True) -> None:
+    """
+    Plot bootstrap results comparison across sample frequencies for multiple models.
+
+    Args:
+        bootstrapped_results: Nested dict {sample_freq: {model: results}}
+        metric: Metric to plot ('roc_auc', 'pr_auc', 'precision')
+        figures_path_root: Path to save the figure
+        comparison: What comparison is plotted
+        window_size: What window size was used to do the mental stress detection
+        window_size_comparison: If set, then we do window size comparison
+        baseline_comparison: If set, then we do baseline comparison
+        show_significance: If True, perform significance testing and show asterisks
+    """
+    import numpy as np
+
+    if window_size_comparison or baseline_comparison:
+        plt.figure(figsize=(10, 8))
+    else:
+        plt.figure(figsize=(8, 6))
+
+    plt.rcParams.update({
+        'font.size': 12,
+        'font.family': 'Times New Roman',
+        'axes.labelsize': 14,
+        'axes.titlesize': 12,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'legend.fontsize': 12,
+        'legend.edgecolor': 'black',
+        'figure.dpi': 500,
+    })
+
+    symbol_dict = {
+        "lr": 'o',
+        "lr_30": 'o',
+        "lr_60": 'o',
+        "lr_baseline": 'o',
+        "lr_base_lpa_mpa": "o",
+        "xgboost": "s",
+        "xgboost_30": "s",
+        "xgboost_60": "s",
+        "xgboost_baseline": "s",
+        "xgboost_base_lpa_mpa": "s",
+        "rf": "d",
+    }
+
+    # Remove top and right spines
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # Get all sample frequencies and models (sorted)
+    sample_freqs = sorted(bootstrapped_results.keys())
+    all_models = list(set([model for freq_results in bootstrapped_results.values()
+                           for model in freq_results.keys()]))
+
+    if not (window_size_comparison or baseline_comparison):
+        all_models = sorted(all_models)
+
+    if window_size_comparison:
+        # Sort so lr (30s) and (60s) comes first then xgboost
+        all_models = sorted(all_models, key=lambda x: (x.split('_')[0], int(x.split('_')[1])))
+
+    if baseline_comparison:
+        label_order = ["base_lpa_mpa", "baseline"]
+        # Sort so lr_baseline, then lr_base_lpa_mpa
+        all_models = sorted(
+            all_models,
+            key=lambda name: (
+                name.split("_", 1)[0],  # e.g. "lr"
+                label_order.index(name.split("_", 1)[1])  # 0 for "baseline", 1 for "base_lpa_mpa"
+            )
+        )
+
+    # Calculate x-positions
+    spacing_factor = 2 if len(all_models) > 3 else 1
+    x = np.arange(len(sample_freqs)) * spacing_factor
+
+    if len(all_models) == 2:
+        width_factor = 0.5
+    elif len(all_models) == 3:
+        width_factor = 0.9
+    else:
+        width_factor = 1.0
+
+    width = width_factor / len(all_models)  # Adjusted bar width for better spacing
+
+    # Store data for significance annotation placement
+    model_data = {}
+    max_y_value = 0
+
+    # Plot for each model
+    handles = []
+    for idx, model in enumerate(all_models, start=1):
+        means = []
+        ci_lower = []
+        ci_upper = []
+
+        # Collect data for this model across all frequencies
+        for freq in sample_freqs:
+            results = bootstrapped_results[freq].get(model)
+            if results and metric in results:
+                means.append(results[metric]['mean'])
+                ci_lower.append(results[metric]['ci_lower'])
+                ci_upper.append(results[metric]['ci_upper'])
+            else:
+                means.append(np.nan)
+                ci_lower.append(np.nan)
+                ci_upper.append(np.nan)
+
+        # Convert to numpy arrays
+        means = np.array(means)
+        ci_lower = np.array(ci_lower)
+        ci_upper = np.array(ci_upper)
+
+        # Store data for significance annotation placement
+        model_data[model] = {
+            'means': means,
+            'ci_upper': ci_upper,
+        }
+
+        # Track maximum y value for significance annotation placement
+        valid_upper = ci_upper[~np.isnan(ci_upper)]
+        if len(valid_upper) > 0:
+            max_y_value = max(max_y_value, np.max(valid_upper))
+
+        # Calculate x positions for this model (centered around the frequency position)
+        if len(all_models) <= 3:
+            x_pos = x + (idx - len(all_models) / 2 + 0.75) * width
+        else:
+            x_pos = x + (idx - len(all_models) / 2 + 0.75) * width * 1.75
+
+        # Plot confidence intervals and means
+        valid_idx = ~np.isnan(means)
+        if np.any(valid_idx):
+            handle = plt.errorbar(x_pos[valid_idx], means[valid_idx],
+                                  yerr=[means[valid_idx] - ci_lower[valid_idx],
+                                        ci_upper[valid_idx] - means[valid_idx]],
+                                  fmt=symbol_dict[model],
+                                  capsize=5, capthick=2, markersize=6,
+                                  color=COLORS_DICT[model],
+                                  label='_nolegend_' if len(all_models) == 4 else MODELS_ABBREVIATION_DICT[model],
+                                  elinewidth=2)
+
+            if (baseline_comparison or window_size_comparison) and idx in (2, 4):
+                for whisker in handle[2]:
+                    whisker.set_linestyle(':')
+
+            # Adjusted label placement to avoid overlapping
+            y_positions = []  # Track annotated y-positions
+            offset = 0.015 * (max(means) - min(means))  # Adaptive offset for better spacing
+
+            for i, (pos, mean) in enumerate(zip(x_pos[valid_idx], means[valid_idx])):
+                new_y = mean
+                while any(abs(new_y - y) < offset for y in y_positions):
+                    new_y -= offset  # Shift up if overlap detected
+
+                plt.text(pos + width / 36, new_y, f' {mean:.3f}',
+                         ha='left', va='center',
+                         color='black',
+                         fontsize=12,
+                         weight="bold")
+
+                y_positions.append(new_y)  # Store adjusted y-position
+
+            handles.append(handle)
+
+    # Add significance annotations if requested
+    if show_significance and len(all_models) >= 2:
+        # Plot significance stars comparing models at each frequency
+        y_offset = 0.05 * max_y_value  # Offset for significance annotations
+
+        # Find the two main model types (assuming LR and XGBoost variants)
+        lr_models = [m for m in all_models if m.startswith('lr')]
+        xgb_models = [m for m in all_models if m.startswith('xgboost')]
+
+        # If we have both LR and XGBoost models, compare them
+        if lr_models and xgb_models:
+            lr_model = lr_models[0]  # Take first LR model
+            xgb_model = xgb_models[0]  # Take first XGBoost model
+
+            lr_data = model_data.get(lr_model)
+            xgb_data = model_data.get(xgb_model)
+
+            if lr_data and xgb_data:
+                # Compare at each frequency
+                for freq_idx in range(len(sample_freqs)):
+                    # Skip if either model has missing data at this frequency
+                    if (np.isnan(lr_data['means'][freq_idx]) or
+                            np.isnan(xgb_data['means'][freq_idx])):
+                        continue
+
+                    # Find the highest point between the two models at this frequency
+                    max_ci_upper = max(lr_data['ci_upper'][freq_idx],
+                                       xgb_data['ci_upper'][freq_idx])
+
+                    # Calculate positions for significance annotation (much closer to CI)
+                    x_center = x[freq_idx]
+                    y_pos = max_ci_upper + 0.005 * max_y_value  # Much smaller offset
+
+                    # Get x positions of the two models at this frequency
+                    if len(all_models) <= 3:
+                        lr_x = x[freq_idx] + (all_models.index(lr_model) + 1 - len(all_models) / 2 + 0.75) * width
+                        xgb_x = x[freq_idx] + (all_models.index(xgb_model) + 1 - len(all_models) / 2 + 0.75) * width
+                    else:
+                        lr_x = x[freq_idx] + (
+                                    all_models.index(lr_model) + 1 - len(all_models) / 2 + 0.75) * width * 1.75
+                        xgb_x = x[freq_idx] + (
+                                    all_models.index(xgb_model) + 1 - len(all_models) / 2 + 0.75) * width * 1.75
+
+                    # Draw horizontal line connecting the two models
+                    plt.plot([lr_x, xgb_x], [y_pos, y_pos], 'k-', linewidth=0.5)
+
+                    # Add tiny vertical ticks at the ends
+                    tick_height = 0.001 * max_y_value  # Much smaller ticks
+                    plt.plot([lr_x, lr_x],
+                             [y_pos - tick_height, y_pos + tick_height],
+                             'k-', linewidth=0.5)
+                    plt.plot([xgb_x, xgb_x],
+                             [y_pos - tick_height, y_pos + tick_height],
+                             'k-', linewidth=0.5)
+
+                    # Add significance stars (always ***)
+                    x_text = (lr_x + xgb_x) / 2
+                    # plt.text(x_text, y_pos + tick_height, '***',
+                    #          ha='center', va='bottom', fontsize=10,
+                    #          weight='bold')
+
+                    plt.text(x_text, y_pos + tick_height, 'p<0.05',
+                             ha='center', va='bottom', fontsize=10,
+                             weight='bold')
+    if len(all_models) == 4:
+        # Create custom legend handles without markers
+        legend_handles = []
+        for idx, model in enumerate(all_models, start=1):
+            # Set linestyle based on idx
+            linestyle = ':' if idx in (2, 4) else '-'
+
+            # Create a line-only legend handle (no markers)
+            legend_handle = plt.Line2D([0], [0], color=COLORS_DICT[model],
+                                       linewidth=2, linestyle=linestyle,
+                                       label=MODELS_ABBREVIATION_DICT[model])
+            legend_handles.append(legend_handle)
+
+    # Customize plot
+    plt.xlabel('Sampling Frequency (Hz)')
+
+    # Simplified metric name on y-axis
+    metric_labels = {
+        'roc_auc': 'AUROC',
+        'pr_auc': 'AUPRC',
+        'precision': 'Precision',
+        'balanced_accuracy': 'Balanced Accuracy',
+        'f1_score': "F1-Score"
+    }
+    plt.ylabel(metric_labels.get(metric, metric))
+
+    # Set x-ticks to sample frequencies
+    plt.xticks(x, [str(freq) for freq in sample_freqs])
+
+    # Adjust y-axis limits to accommodate significance annotations
+    if show_significance:
+        ylim = plt.ylim()
+        plt.ylim(ylim[0], ylim[1] + 0.15 * (ylim[1] - ylim[0]))
+
+    if baseline_comparison:
+        # We have a long description which is why we should have them all in 1 coloum
+        ncol_len = 1
+    else:
+        ncol_len = len(all_models) if len(all_models) != 4 else 2
+
+    if len(all_models) != 4:
+        plt.legend(
+            loc='upper center',
+            bbox_to_anchor=(0.5, -0.15),
+            ncol=ncol_len,
+            fontsize=12,
+            frameon=False,
+        )
+    else:
+        plt.legend(
+            handles=legend_handles,
+            loc='upper center',
+            bbox_to_anchor=(0.5, -0.15),
+            ncol=ncol_len,
+            fontsize=12,
+            frameon=False,
+        )
+
+    # Add grid
+    plt.grid(False)
+
+    # Adjust layout and save
+    plt.tight_layout()
+
+    # Modify filename to indicate significance testing
+    significance_suffix = "_with_significance" if show_significance else ""
+
+    if window_size_comparison:
+        save_path = os.path.join(figures_path_root,
+                                 f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window_COMPARISON{significance_suffix}.png')
+    elif baseline_comparison:
+        save_path = os.path.join(figures_path_root,
+                                 f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window_BASELINE_COMPARISON{significance_suffix}.png')
+    else:
+        save_path = os.path.join(figures_path_root,
+                                 f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window{significance_suffix}.png')
+
+    plt.savefig(save_path, bbox_inches='tight', dpi=500)
+    plt.close()
+
+
 def main(args):
     # Get all sample frequencies to analyze
     sample_frequencies = [125, 250, 500, 1000]  # Add or modify frequencies as needed
@@ -690,6 +792,11 @@ def main(args):
                                     str(args.window_size), comparison)
     # We use this to either get the results from smote or not
     # Actually, smote does not really have an impact on the performance.
+
+    statistical_results = load_statistical_results(
+        RESULTS_PATH, args.sample_frequency, args.window_size, comparison, "xgboost,lr"
+    )
+
 
     #ToDo:
     # Actually I could rewrite this, as I have args.resampling_method
@@ -712,8 +819,6 @@ def main(args):
 
     # Collect results for all frequencies
     bootstrapped_results = {}
-
-    args.do_window_comparison = True
 
     if args.do_window_comparison:
         bootstrapped_results_window_30 = {}
@@ -769,7 +874,6 @@ def main(args):
                 bootstrapped_results_window_comparison[freq].update(value_dict)
 
         if args.do_baseline_comparison:
-
             bootstrapped_results_base_lpa_mpa[freq] = {
                 f"{model}_{args.negative_class}": load_json_results(
                     RESULTS_PATH,
@@ -835,6 +939,7 @@ def main(args):
             FIGURES_PATH,
             comparison,
             window_size=args.window_size,
+            show_significance=args.add_significance,
         )
         if args.do_window_comparison:
             plot_bootstrap_comparison(
@@ -844,6 +949,7 @@ def main(args):
                 comparison,
                 window_size=args.window_size,
                 window_size_comparison=True,
+                show_significance=False,
             )
 
         if args.do_baseline_comparison:
@@ -854,7 +960,8 @@ def main(args):
                 comparison,
                 window_size=args.window_size,
                 window_size_comparison=False,
-                baseline_comparison=True
+                baseline_comparison=True,
+                show_significance=False,
             )
 
         plot_feature_subset_comparison(
@@ -892,6 +999,9 @@ if __name__ == "__main__":
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default="10full",
                         help="The window shift that we use for detecting stress")
+    parser.add_argument("--add_significance",
+                        help="Add significance level. Currently only supported for bootstrap performance, "
+                             "and not the full sweep of results", action="store_true")
     parser.add_argument("--do_window_comparison", help="If set, we compare the different window sizes.",
                         action="store_true")
     parser.add_argument("--window_size_comparison", type=int, default=60,
