@@ -695,9 +695,27 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
                     #          ha='center', va='bottom', fontsize=10,
                     #          weight='bold')
 
-                    plt.text(x_text, y_pos + tick_height, 'p<0.05',
-                             ha='center', va='bottom', fontsize=10,
-                             weight='bold')
+                    if metric == "roc_auc":
+                        # AUROC results are all significant at 0.01
+                        plt.text(x_text, y_pos + tick_height, 'p<0.01',
+                                 ha='center', va='bottom', fontsize=10,
+                                 weight='bold')
+
+                    elif metric == "pr_auc":
+                        if sample_freqs[freq_idx] == 500:
+                            plt.text(x_text, y_pos + tick_height, 'p<0.05',
+                                     ha='center', va='bottom', fontsize=10,
+                                     weight='bold')
+                        else:
+                            plt.text(x_text, y_pos + tick_height, 'p<0.01',
+                                     ha='center', va='bottom', fontsize=10,
+                                     weight='bold')
+
+                    else:
+                        plt.text(x_text, y_pos + tick_height, 'p<0.05',
+                                 ha='center', va='bottom', fontsize=10,
+                                 weight='bold')
+
     if len(all_models) == 4:
         # Create custom legend handles without markers
         legend_handles = []
@@ -796,7 +814,6 @@ def main(args):
     statistical_results = load_statistical_results(
         RESULTS_PATH, args.sample_frequency, args.window_size, comparison, "xgboost,lr"
     )
-
 
     #ToDo:
     # Actually I could rewrite this, as I have args.resampling_method
