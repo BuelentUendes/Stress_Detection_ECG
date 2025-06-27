@@ -42,6 +42,7 @@ from sklearn.linear_model import LogisticRegression
 import xgboost as xgb
 
 from imblearn.over_sampling import ADASYN, SMOTE
+from sklearn.isotonic import IsotonicRegression
 
 from sklearn.feature_selection import RFE
 import optuna
@@ -627,7 +628,8 @@ class ECGDataset:
                 'blue': '#0072B2',
                 'mental_stress': '#0072B2',
                 'high_physical_activity': '#d84315',
-                'Sitting': '#9d9d9d',
+                # 'Sitting': '#9d9d9d',
+                'baseline': '#9d9d9d',
             }
 
 
@@ -639,7 +641,6 @@ class ECGDataset:
 
         if not include_high_physical_activity:
             self.total_data_copy = self.total_data[(self.total_data['category'] != "high_physical_activity")]
-
 
         if plot_subcategory:
             label_data = self.total_data[self.total_data["category"]==category_to_plot][[column, "label"]]
@@ -677,6 +678,7 @@ class ECGDataset:
         for category, color in colors.items():
             if category == "Sitting and recovery":
                 category_name = "baseline"
+                category = "Baseline"
                 category_data = self.total_data_copy[(self.total_data_copy['category'] == category_name) | (self.total_data_copy["label"] == category_name)][column]
             else:
                 category_data = \
@@ -694,11 +696,10 @@ class ECGDataset:
         plt.legend(
             loc='upper center',
             bbox_to_anchor=(0.5, -0.15),
-            ncol=3,
+            ncol=3 if show_baseline else 2,
             fontsize=12,
             frameon=False
         )
-        # plt.legend()
 
         # Save or show the plot
         if save_path:
@@ -1893,6 +1894,46 @@ def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame],
     return X_bootstrapped, y_bootstrapped
 
 
+def get_bootstrapped_brier_score(
+        ml_model: BaseEstimator,
+        val_data: tuple[np.ndarray, np.ndarray],
+        test_data: tuple[np.ndarray, np.ndarray],
+        bootstrap_samples: int,
+        bootstrap_method: str,
+        isotonic_regressor: BaseEstimator= None,
+        alpha: float = 5.0,
+
+):
+    X_val, y_val, label_val = val_data
+    X_test, y_test, label_test = test_data
+
+    # Initialize results dictionary
+    results = {
+        'brier_score': [],
+    }
+
+    for idx in range(bootstrap_samples):
+        X_bootstrap_val, y_bootstrap_val = get_resampled_data(X_val, y_val, seed=idx)
+        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+        y_predictions = ml_model.predict_proba(X_bootstrap)[:, 1]
+        if isotonic_regressor is not None:
+            isotonic_regressor = IsotonicRegression(out_of_bounds="clip")
+            p_val = ml_model.predict_proba(X_bootstrap_val)[:, 1]
+            isotonic_regressor.fit(p_val, y_bootstrap_val)
+
+            y_predictions = isotonic_regressor.transform(y_predictions)
+
+        brier_score = np.mean((y_predictions - y_bootstrap) ** 2)
+
+        results["brier_score"].append(
+            np.round(brier_score,4)
+        )
+
+    final_results = get_confidence_interval_mean(results, bootstrap_method, alpha=alpha)
+
+    return final_results
+
+
 def get_bootstrapped_cohens_kappa(
         ml_model_1: BaseEstimator,
         threshold_1: float,
@@ -2458,6 +2499,21 @@ class FeatureSelectionPipeline:
 
         with open(os.path.join(save_path, f"feature_importance_total_selected_{top_k_features}.json"), "w") as f:
             json.dump(history_feature_selection, f, indent=4)
+
+
+def calibrate_isotonic_regression(
+        best_model,
+        val_data
+):
+    x_val, y_val, label_val = val_data
+    isotonic_model = IsotonicRegression(out_of_bounds='clip')
+    p_val =  best_model.predict_proba(x_val)[:, 1]
+
+    isotonic_model.fit(p_val, y_val)
+    # Transform then
+    #calib_p = isotonic_model.transform(p_test)
+
+    return isotonic_model
 
 
 def plot_calibration_curve(y_test: np.array, predictions: np.array,
