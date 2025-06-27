@@ -12,7 +12,7 @@ import optuna
 import numpy as np
 import itertools
 from sklearn import metrics
-from sklearn.base import clone, BaseEstimator
+from sklearn.base import BaseEstimator
 from optuna.trial import Trial
 import json
 import shap
@@ -22,7 +22,8 @@ from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
 from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
     get_data_balance, evaluate_classifier, create_directory, FeatureSelectionPipeline, \
     bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model, plot_feature_importance,
-                                    get_bootstrapped_cohens_kappa)
+                                    get_bootstrapped_cohens_kappa, get_bootstrapped_brier_score,
+                                    calibrate_isotonic_regression)
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method, validate_feature_subset
 from utils.helper_xai import (create_shap_dependence_plots, create_shap_beeswarm_plot,
@@ -437,7 +438,9 @@ def main(args):
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
                                                   reference=reference, show_plot=False)
 
-    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean Heart Rate (bpm)", save_path=figures_path_hist, show_plot=False)
+    ecg_dataset.plot_histogram(column="hr_mean", x_label="Mean Heart Rate (bpm)",
+                               show_baseline=False,
+                               save_path=figures_path_hist, show_plot=False)
 
     if args.use_feature_selection:
         # Get the dataset for the feature selection process (we should test it on the test set, to see how it generalizes)
@@ -653,9 +656,23 @@ def main(args):
     if args.add_calibration_plots and not args.do_within_comparison and not args.use_default_values:
         # Get class 1 probability
         y_pred = best_model.predict_proba(test_data[0])[:, 1]
+        isotonic_regressor = calibrate_isotonic_regression(best_model, val_data)
+
+        # Transform the probabilities:
+        y_pred = isotonic_regressor.transform(y_pred)
+
         plot_calibration_curve(test_data[1], y_pred, args.bin_size, args.bin_strategy,
                                resampling_method=args.resampling_method,
                                save_path= figures_path_root)
+
+        # Get bootstrapped ECE results:
+        bootstrapped_brier_score_results= get_bootstrapped_brier_score(
+            best_model, val_data, test_data, args.bootstrap_samples, args.bootstrap_method
+        )
+
+        # Save brier score results:
+        with open(os.path.join(results_path_best_performance, f"bootstrapped_brier_scores_{args.resampling_method}.json"), "w") as f:
+            json.dump(bootstrapped_brier_score_results, f, indent=4)
 
     # Feature coefficients for LR model
     if args.model_type == "lr":
@@ -707,6 +724,7 @@ def main(args):
             final_cohen_results[f"{ml_model_1}_{ml_model_2}"] = bootstrapped_cohen
 
         print(final_cohen_results)
+
         # Good paper for comparison of cohens kappa:
         # https: // pmc.ncbi.nlm.nih.gov / articles / PMC3900052 /  # t3-biochem-med-22-3-276-4
 
