@@ -1,9 +1,16 @@
+###########################
+# New code! Updated with detailed skip iteration info 30.06
+###########################
+
 import sys
-from typing import Any, TypeVar, Iterator, Union, Callable, Generator
+from typing import Any, TypeVar, Iterator, Union, Callable, Generator, Dict
+import json
+import os
+from datetime import datetime
 
 T = TypeVar('T')
-if sys.version_info >= (3,11):
-    from typing import Self 
+if sys.version_info >= (3, 11):
+    from typing import Self
 else:
     Self = Any
 
@@ -14,6 +21,7 @@ from tqdm.auto import tqdm
 
 from .preprocessing import Pipeline, Preprocessing
 from ..segmenters import BaseSegmenter
+
 
 class Segmenter(Preprocessing):
     """
@@ -32,7 +40,7 @@ class Segmenter(Preprocessing):
         Returns
         -------
         Self
-            The feature extractor.  
+            The feature extractor.
         """
         segmenter = _Extractor(self, method, num_proc=self._num_proc)
         self[self.__SEGMENT_SETTING_KEY] = segmenter
@@ -41,7 +49,7 @@ class Segmenter(Preprocessing):
     ## --- Pipeline Executors --- ##
     def _execute(self, key: str, value: Union[Any, list]) -> None:
         """Executes the given key-value pair in the pipeline settings.
-        
+
         Parameters
         ----------
         key : str
@@ -55,10 +63,10 @@ class Segmenter(Preprocessing):
         except KeyError:
             # If the key is not found, try the parent executors.
             super()._execute(key, value)
-            
+
     def __execute(self, key: str, value: Union[Any, list]) -> None:
         """Executes the given key-value pair in the pipeline settings.
-        
+
         Parameters
         ----------
         key : str
@@ -79,7 +87,9 @@ class Segmenter(Preprocessing):
         else:
             raise KeyError(f"Invalid key: {key}")
 
+
 class SkipIteration(Exception): pass
+
 
 class _Extractor(Segmenter):
     """
@@ -92,24 +102,28 @@ class _Extractor(Segmenter):
 
     def __init__(self, previous: Pipeline, segmenter: Callable[..., Generator], num_proc: int = 8):
         """Initializes the internal extractor pipeline class in the SiA-Kit.
-        
+
         Parameters
         ----------
         previous : Pipeline
-            The previous pipeline in the pipeline chain. Considering the extractor is only used to extract features from segments, the previous pipeline is 
+            The previous pipeline in the pipeline chain. Considering the extractor is only used to extract features from segments, the previous pipeline is
             to eventually redirect the pipeline back into the main pipeline chain.
         segmenter : Callable[..., Generator]
             The segmenter method, which dictates how the data is divided based on given parameters.
         num_proc : int, optional
-            The number of processes to use, by default 8 
+            The number of processes to use, by default 8
         """
         super().__init__(num_proc=num_proc)
         self._previous_pipeline = previous
         self.__segmenter = segmenter
+        # Initialize skip condition counters
+        self.__skip_counters: Dict[str, int] = {}
+        self.__total_segments_processed = 0  # Add counter for total segments
+        self.__log_file_path = None
 
     def extract(self, a: Union[str, Callable], b: Callable = None) -> Self:
         """Extracts features from the data. The extraction is done by a given method, which dictates how the features are extracted based on given parameters.
-        
+
         Parameters
         ----------
         a : Union[str, Callable]
@@ -132,20 +146,47 @@ class _Extractor(Segmenter):
         self[self.__EXTRACT_SETTING_KEY] = data
         return self
 
-    def skip(self, callable: Callable):
+    def skip(self, callable: Callable, condition_name: str = None):
         """Skips the current iteration if the given condition is met.
 
         Parameters
         ----------
         callable : Callable
             The condition to skip the current iteration.
-        
+        condition_name : str, optional
+            A name for this skip condition for logging purposes. If not provided,
+            will use the function name or a default name.
+
         Returns
         -------
         Self
-            The feature extractor.  
+            The feature extractor.
         """
-        self[self.__SKIP_SETTING_KEY] = callable
+        # Generate a name for this condition if not provided
+        if condition_name is None:
+            condition_name = getattr(callable, '__name__', f'skip_condition_{len(self.__skip_counters)}')
+
+        # Initialize counter for this condition
+        self.__skip_counters[condition_name] = 0
+
+        # Store both the callable and its name
+        self[self.__SKIP_SETTING_KEY] = {'callable': callable, 'name': condition_name}
+        return self
+
+    def set_log_file(self, log_file_path: str) -> Self:
+        """Set the path for the log file to save skip condition statistics.
+
+        Parameters
+        ----------
+        log_file_path : str
+            Path to the log file where skip statistics will be saved.
+
+        Returns
+        -------
+        Self
+            The feature extractor.
+        """
+        self.__log_file_path = log_file_path
         return self
 
     def use(self, name: str, callable: Callable) -> Self:
@@ -165,7 +206,48 @@ class _Extractor(Segmenter):
         """
         self[self.__USE_SETTING_KEY] = {name: callable}
         return self
-    
+
+    def _save_skip_statistics(self):
+        """Save the skip condition statistics to a log file."""
+        if self.__log_file_path is None:
+            return
+
+        # Prepare statistics data with correct totals
+        total_skipped = sum(self.__skip_counters.values())
+
+        stats = {
+            'timestamp': datetime.now().isoformat(),
+            'total_skipped': total_skipped,
+            'skip_conditions': self.__skip_counters,
+            'total_segments_processed': self.__total_segments_processed,
+            'clean_segments': self.__total_segments_processed - total_skipped,
+            'skipped_percentage': f"{(total_skipped / self.__total_segments_processed * 100):.4f}"
+            if self.__total_segments_processed > 0 else "0.000",
+        }
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.__log_file_path), exist_ok=True)
+
+        # Load existing log data if file exists
+        log_data = []
+        if os.path.exists(self.__log_file_path):
+            try:
+                with open(self.__log_file_path, 'r') as f:
+                    log_data = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                log_data = []
+
+        # Append new statistics
+        log_data.append(stats)
+
+        # Save updated log data
+        with open(self.__log_file_path, 'w') as f:
+            json.dump(log_data, f, indent=2)
+
+        print(f"Skip statistics saved to {self.__log_file_path}")
+        print(f"Total segments processed: {self.__total_segments_processed}")
+        print(f"Total segments skipped: {total_skipped}")
+
     def _segment(self, data: Dataset) -> Iterator[Dataset]:
         """Use the extractor to segment the data, and extract features from the segments.
 
@@ -179,9 +261,10 @@ class _Extractor(Segmenter):
         Iterator[Dataset]
             The segmented data.
         """
+
         def _get_args(fn) -> list:
             """Get the arguments of a given function
-            
+
             Parameters
             ----------
             fn : Callable
@@ -193,12 +276,15 @@ class _Extractor(Segmenter):
                 The arguments of the function
             """
             return fn.__code__.co_varnames[:fn.__code__.co_argcount]
-        
+
         segmenter = self.__segmenter.set_dataset(data)
+
         with tqdm(total=len(segmenter), desc='Extracting Features...', unit='windows', position=2) as pbar:
             for segment in segmenter:
-                memory = {} # Memory for storing results from the use method.
+                memory = {}  # Memory for storing results from the use method.
                 extracted_features = {}
+                self.__total_segments_processed += 1  # Increment total counter
+
                 try:
                     for setting in self._settings:
                         key, value = next(iter(setting.items()))
@@ -214,20 +300,24 @@ class _Extractor(Segmenter):
                             kwargs = {}
                             if "dataset" in args:
                                 kwargs["dataset"] = self.__segmenter.dataset
-                            
+
                             args = []
                             for column in intersection:
                                 if column in memory_features:
                                     args.append(memory[column])
                                 else:
                                     args.append(segment[column])
-                            
+
                             if 'column' in value:
                                 extracted_features[value['column']] = method(*args, **kwargs)
                             else:
                                 extracted_features.update(method(*args, **kwargs))
+
                         elif key == self.__SKIP_SETTING_KEY:
-                            args = _get_args(value)
+                            callable_func = value['callable']
+                            condition_name = value['name']
+
+                            args = _get_args(callable_func)
                             features = self.__segmenter.dataset.features.keys()
                             memory_features = memory.keys()
                             intersection = list(set(features) & set(args) | set(memory_features) & set(args))
@@ -235,7 +325,7 @@ class _Extractor(Segmenter):
                             kwargs = {}
                             if "dataset" in args:
                                 kwargs["dataset"] = self.__segmenter.dataset
-                            
+
                             args = []
                             for column in intersection:
                                 if column in memory_features:
@@ -243,8 +333,11 @@ class _Extractor(Segmenter):
                                 else:
                                     args.append(segment[column])
 
-                            if value(*args, **kwargs):
+                            if callable_func(*args, **kwargs):
+                                # Increment the counter for this specific condition
+                                self.__skip_counters[condition_name] += 1
                                 raise SkipIteration()
+
                         elif key == self.__USE_SETTING_KEY:
                             for name, method in value.items():
                                 args = _get_args(method)
@@ -254,7 +347,7 @@ class _Extractor(Segmenter):
                                 kwargs = {}
                                 if "dataset" in args:
                                     kwargs["dataset"] = self.__segmenter.dataset
-                                
+
                                 args = []
                                 for column in intersection:
                                     if column in memory_features:
@@ -271,6 +364,9 @@ class _Extractor(Segmenter):
             pbar.total = pbar.n
             pbar.refresh()
 
+        # Save statistics after processing is complete with correct totals
+        self._save_skip_statistics()
+
     def __len__(self) -> int:
         return len(self.__segmenter)
 
@@ -284,6 +380,7 @@ class _Extractor(Segmenter):
                 def wrapper(*args, **kwargs):
                     previous_instance = object.__getattribute__(self, '_previous_pipeline')
                     return object.__getattribute__(previous_instance, name)(*args, **kwargs)
+
                 return wrapper
             return attr
         except AttributeError:
