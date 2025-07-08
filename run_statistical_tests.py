@@ -69,7 +69,7 @@ def calculate_differences(perf_dict, model1, model2):
     }
 
 
-def get_one_sided_p(delta_list, threshold, hypothesis="greater"):
+def get_one_sided_p(delta_list, threshold, hypothesis="unequal"):
     """
     delta_list: list of bootstrap differences Δ_i = metric_A − metric_B
     Returns the one-sided p-value for H1: Δ > 0.
@@ -190,6 +190,7 @@ def main(args):
         metric: get_one_sided_p(diffs, mean_difference_to_check[metric])
         for metric, diffs in results.items()
     }
+
     print("One-sided bootstrap p-values:", p_values)
 
     final_diff_results_alpha10 = get_confidence_interval_mean(results,
@@ -201,30 +202,44 @@ def main(args):
     final_diff_results_alpha1 = get_confidence_interval_mean(results,
                                                       bootstrap_method=args.bootstrap_method,
                                                       alpha=1.0)
+    final_diff_results_alpha01 = get_confidence_interval_mean(results,
+                                                      bootstrap_method=args.bootstrap_method,
+                                                      alpha=0.1)
 
     for metric, results_dict in final_diff_results_alpha10.items():
         final_diff_results_alpha10[metric][f"significant_@_10"]  = check_significance(results_dict)
+        final_diff_results_alpha10[metric][f"p_values"] = p_values
         with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',','_')}_alpha_10.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha10, f, indent=4)
 
     for metric, results_dict in final_diff_results_alpha5.items():
         final_diff_results_alpha5[metric][f"significant_@_5"]  = check_significance(results_dict)
+        final_diff_results_alpha5[metric][f"p_values"] = p_values
         with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_5.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha5, f, indent=4)
 
     for metric, results_dict in final_diff_results_alpha1.items():
         final_diff_results_alpha1[metric][f"significant_@_1"]  = check_significance(results_dict)
-
+        final_diff_results_alpha1[metric][f"p_values"] = p_values
         with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_1.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha1, f, indent=4)
 
+    for metric, results_dict in final_diff_results_alpha01.items():
+        final_diff_results_alpha01[metric][f"significant_@_01"]  = check_significance(results_dict)
+        final_diff_results_alpha01[metric][f"p_values"] = p_values
+        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_01.json"),
+                  "w") as f:
+            json.dump(final_diff_results_alpha01, f, indent=4)
+
     print(f"Performance_difference {args.model_comparisons} frequency: {args.sample_frequency}"
           f"\n Alpha 10: {final_diff_results_alpha10}",
           f"\n Alpha 5: {final_diff_results_alpha5}",
-          f"\n Alpha 1: {final_diff_results_alpha1}")
+          f"\n Alpha 1: {final_diff_results_alpha1}",
+          f"\n Alpha 0.1: {final_diff_results_alpha01}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -242,7 +257,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
-                        default=125, type=int)
+                        default=500, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default='10full',
