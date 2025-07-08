@@ -113,7 +113,8 @@ class ECGDataset:
                  root_dir: str,
                  test_size: Optional[float] = 0.2,
                  val_size: Optional[float] = 0.2,
-                 add_participant_id: Optional[bool] = False):
+                 add_participant_id: Optional[bool] = False
+                 ):
         """
         :param root_dir: root directory for the data import
         :param test_size: test size split, default 0.2
@@ -466,10 +467,13 @@ class ECGDataset:
         for i, label in enumerate(ordered_labels):
             if t_test_results[label]['p-value'] < 0.001:
                 significance = '***'
+                significance = 'P<.001'
             elif t_test_results[label]['p-value'] < 0.01:
-                significance = '**'
+                p = t_test_results[label]['p-value']
+                significance = f"P={f'{p:.3f}'.lstrip('0')}"
             elif t_test_results[label]['p-value'] < 0.05:
-                significance = '*'
+                p = t_test_results[label]['p-value']
+                significance = f"P={f'{p:.3f}'.lstrip('0')}"
             else:
                 significance = 'ns'
                 significance_present = 1
@@ -479,7 +483,7 @@ class ECGDataset:
 
             # Place the significance marker slightly above the max value
             ax.text(i, current_max + y_buffer, significance,
-                    horizontalalignment='center', fontsize=12, fontweight='bold')
+                    horizontalalignment='center', fontsize=8, fontweight='bold')
 
         if heart_measure == "nk_mean_nn":
             label_plot = "AVNN"
@@ -531,12 +535,13 @@ class ECGDataset:
                           label='Individual Data Points'))
 
         # Add significance section
-        legend_items.append(mlines.Line2D([], [], color='white', marker='', linestyle='', label=' '))
-        legend_items.append(
-            mlines.Line2D([], [], color='white', marker='', linestyle='', label='Statistical Significance'))
-        legend_items.append(mlines.Line2D([], [], color='black', marker='$*$', markersize=5, linestyle='', label='p < 0.05'))
-        legend_items.append(mlines.Line2D([], [], color='black', marker='$**$', markersize=10, linestyle='', label='p < 0.01'))
-        legend_items.append(mlines.Line2D([], [], color='black', marker='$***$', markersize=15, linestyle='', label='p < 0.001'))
+        # We need to leave this out for JMIR
+        # legend_items.append(mlines.Line2D([], [], color='white', marker='', linestyle='', label=' '))
+        # legend_items.append(
+        #     mlines.Line2D([], [], color='white', marker='', linestyle='', label='Statistical Significance'))
+        # legend_items.append(mlines.Line2D([], [], color='black', marker='$*$', markersize=5, linestyle='', label='p < 0.05'))
+        # legend_items.append(mlines.Line2D([], [], color='black', marker='$**$', markersize=10, linestyle='', label='p < 0.01'))
+        # legend_items.append(mlines.Line2D([], [], color='black', marker='$***$', markersize=15, linestyle='', label='p < 0.001'))
 
         if significance_present:
             legend_items.append(
@@ -1461,7 +1466,7 @@ def prepare_data(train_data: pd.DataFrame,
                                       columns=x_test.columns, index=x_test.index)
 
         # List of special columns to always scale with MinMaxScaler
-        special_cols = [col for col in ["nn20", "nn50", "wmax"] if col in x_train.columns]
+        special_cols = [col for col in ["nn20", "nn50", "wmax", "age", "gender"] if col in x_train.columns]
 
         if scaler.lower() == "standard_scaler":
             # For standard_scaler, use StandardScaler on other columns and MinMaxScaler on special columns.
