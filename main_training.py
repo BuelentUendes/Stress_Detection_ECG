@@ -20,14 +20,13 @@ import pandas as pd
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH, FIGURES_PATH
 from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
-    get_data_balance, evaluate_classifier, create_directory, FeatureSelectionPipeline, \
+    evaluate_classifier, create_directory, FeatureSelectionPipeline, \
     bootstrap_test_performance, plot_calibration_curve, get_feature_importance_model, plot_feature_importance,
                                     get_bootstrapped_cohens_kappa, get_bootstrapped_brier_score,
                                     calibrate_isotonic_regression)
 from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
     validate_resampling_method, validate_feature_subset
-from utils.helper_xai import (create_shap_dependence_plots, create_shap_beeswarm_plot,
-                              create_shap_decision_plot, create_shap_summary_plot_simple, create_feature_name_dict)
+from utils.helper_xai import (create_shap_summary_plot_simple, create_feature_name_dict)
 
 
 MODELS_ABBREVIATION_DICT = {
@@ -447,12 +446,16 @@ def main(args):
         train_data_feature_selection, val_data_feature_selection = ecg_dataset.get_feature_selection_data()
 
         train_data_feature_selection, val_data_feature_selection, feature_names = prepare_data(
-            train_data_feature_selection, val_data_feature_selection, positive_class=args.positive_class,
-            negative_class=args.negative_class, resampling_method=args.resampling_method,
+            train_data_feature_selection,
+            val_data_feature_selection,
+            positive_class=args.positive_class,
+            negative_class=args.negative_class,
+            resampling_method=args.resampling_method,
             balance_positive_sublabels=args.balance_positive_sublabels,
             balance_sublabels_method = args.balance_sublabels_method,
             scaler=args.standard_scaler,
-            use_quantile_transformer=args.use_quantile_transformer)
+            use_quantile_transformer=args.use_quantile_transformer
+        )
 
         # Create base estimator
         base_estimator = get_ml_model(args.model_type, {})  # Basic model for feature selection
@@ -733,7 +736,6 @@ def main(args):
             json.dump(final_cohen_results, f, indent=4)
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", help="seed number", default=42, type=int)
@@ -741,7 +743,7 @@ if __name__ == "__main__":
                         default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
-                        default="base_lpa_mpa",
+                        default="baseline",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
@@ -779,6 +781,8 @@ if __name__ == "__main__":
     parser.add_argument("--bootstrap_subcategories", action="store_true",
                         help="If enabled, we also bootstrap the subcategories and get CI for these.")
     parser.add_argument("--timeout", type=int, default=3600, help="Timeout for optimization in seconds")
+    parser.add_argument("--add_static", help="If true, we add gender and age to the feature set",
+                        action="store_true")
     parser.add_argument("--use_feature_selection", action="store_true",
                         help="Boolean. If set, we use feature selection")
     parser.add_argument("--min_features", type=int, default=5,
@@ -841,52 +845,15 @@ if __name__ == "__main__":
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
     args.add_calibration_plots = True
-    args.use_feature_subset = False
-    # args.use_top_features = True
+
     args.do_hyperparameter_tuning = True
     args.get_model_explanations = True if args.model_type != "rf" else False
-    # args.save_feature_plots = True
-    # Set seed for reproducibility
-
     args.resampling_method = "smote"
-    # args.min_features = 3
-    # args.max_features = 3
-    # args.use_feature_selection = True
-    # args.use_top_features = True
 
-    # args.balance_positive_sublabels = True
+    # Set seed for reproducibility
     set_seed(args.seed)
 
     main(args)
-
-    # Useful discussion for the choice of evaluation metrics:
-    # See link: https://neptune.ai/blog/f1-score-accuracy-roc-auc-pr-auc
-
-    #ToDo:
-    # Do physical activity vs baseline -> should be high performant.
-    # SSST smote upsampling. Stratified approach (either upsample or downsample)
-    # Normally then we should see an improved performance in the SSST as well
-    # (as the reason why this performs so low is bc of the small sample size).
-    # Do the feature reduction experiments as well.
-    # From 104 to 20 to 10
-    # Get the explanations for the ones with fewer features
-    # Get the random also
-
-    #ToDo:
-    # Add similarity DTW time-series, check how fast this is
-    # Classify performance MS - LPA and MS -MPA (very similar though) solely on mean heart rate and compare with dummy classifier
-    # Logging how many samples are removed
-    # Check distribution of the underlying features!
-    # Alternative feature selection process -> mutual information, backward selection
-    # Combat overfitting of XGboost
-    # Check the preprocessing/feature engineering pipeline once more! -> must be somehow ways to improve the performance
-    # Log it correctly & assess the quality of the signal!
-    # window shift of 30s
-
-    #Combat overfitting XGboost
-
-    #In-depth gaussian mixture model:
-    # https://jakevdp.github.io/PythonDataScienceHandbook/05.12-gaussian-mixtures.html
 
     # To get the reduction of features:
     # Use this command:
