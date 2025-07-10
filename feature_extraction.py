@@ -7,8 +7,6 @@ import numpy as np
 import argparse
 
 from collections import Counter
-from pyexpat import features
-
 from sia import Segmenter
 from sia.io import read_csv, write_csv
 from sia.segmenters import SlidingWindow
@@ -75,6 +73,7 @@ def main(args):
     if args.add_static_data:
         add_static_data(FEATURE_DATA_PATH, output_path, args.participant_number)
 
+# Important: In our study, we do not consider the static data!
 def add_static_data(FEATURE_DATA_PATH, output_path, participant_number=30100):
     # load demographics csv
     demographics_pd = pd.read_csv(os.path.join(FEATURE_DATA_PATH, "demographics_v2.csv"))
@@ -91,8 +90,6 @@ def add_static_data(FEATURE_DATA_PATH, output_path, participant_number=30100):
         participant_number_csv = file.split("/")[-1]
         participant_features_pd = pd.read_csv(file)
         participant_number_id = participant_number_csv.split(".csv")[0]
-        # Get participant age and gener
-
         participant_row = demographics_pd[demographics_pd["Subject_ID"] == int(participant_number_id)]
 
         try:
@@ -127,7 +124,6 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    # args.add_static_data = True
     main(args)
 
 
