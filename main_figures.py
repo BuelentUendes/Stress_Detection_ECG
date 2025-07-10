@@ -678,17 +678,20 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
                                  ha='center', va='bottom', fontsize=10,
                                  )
 
+                    # Check the files:
+                    # We hard coded the results which is bad. ToDo: Update it to make it automatic!
+                    # Under results/sample_frequency (e.g. 125)/30 (window size)/MS_BASE_LPA_MPA/statistical_test_xgboost_lr_alpha01.json
                     elif metric == "pr_auc":
                         if sample_freqs[freq_idx] == 1000:
-                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$<.001",
+                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.01",
                                      ha='center', va='bottom', fontsize=10,
                                      )
                         elif sample_freqs[freq_idx] == 500:
-                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.03",
+                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.02",
                                      ha='center', va='bottom', fontsize=10,
                                      )
                         elif sample_freqs[freq_idx] == 250:
-                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.01",
+                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.005",
                                      ha='center', va='bottom', fontsize=10,
                                      )
                         elif sample_freqs[freq_idx] == 125:
