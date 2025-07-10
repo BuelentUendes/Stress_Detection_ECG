@@ -29,7 +29,7 @@ def main(args):
     elif args.data_chunk == 5:
         input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency), "part_5")
     # As of now we allow all processing only for sample frequency 1000
-    elif args.data_chunk == -1 and args.sample_frequency == 1000:
+    elif args.data_chunk == -1:
         input_path = os.path.join(RAW_DATA_PATH, str(args.sample_frequency))
 
     input_file = str(args.participant_number) + "_LAB_Conditions_ECG.edf" if args.participant_number != -1 else "*.edf"
@@ -71,14 +71,14 @@ if __name__ == "__main__":
                         help="Which sample frequency to use. Original is 1,000 Hz."
                              "Note: We can have other sample frequencies, "
                              "but then one needs to use the downsample script first",
-                        default=512)
+                        default=62.5)
     parser.add_argument("--method", type=str, help="which method to choose for preprocessing"
                                                    "Choices: 'neurokit', 'engzeemod2012', 'elgendi2010', "
                                                    "'hamilton2002', 'pantompkins1985'",
                         default="neurokit")
     parser.add_argument("--number_processors", type=int, default=1, help="If set to -1, it uses all available")
     parser.add_argument("--participant_number", type=int, help="which specific number to run. Set -1 for all",
-                        default=30100)
+                        default=30182)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--data_chunk", type=int, default=1,
                         help="Which data chunk to process. 1 for part 1, 2 for part 2 etc.")
@@ -90,5 +90,3 @@ if __name__ == "__main__":
 
     main(args)
 
-    # Todo:
-    #Do this completely
