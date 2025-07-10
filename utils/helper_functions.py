@@ -375,6 +375,8 @@ class ECGDataset:
                 t_stat, p_value = ttest_1samp(hr_reactivity_data, popmean=0, nan_policy='omit')
                 t_test_results[label] = {"t-statistic": t_stat, "p-value": p_value}
 
+        print(f"The t-test values are:\n")
+        print(t_test_results)
         hr_reactivity_statistics = positive_class_baseline_hr_label[["label", "hrv_reactivity"]].groupby(
             ["label"]).describe()
         hr_reactivity_statistics.columns = ['_'.join(col).strip() for col in hr_reactivity_statistics.columns]
@@ -466,14 +468,13 @@ class ECGDataset:
         significance_present = 0
         for i, label in enumerate(ordered_labels):
             if t_test_results[label]['p-value'] < 0.001:
-                significance = '***'
-                significance = 'P<.001'
+                significance = r"$\mathit{P}$<.001"
             elif t_test_results[label]['p-value'] < 0.01:
                 p = t_test_results[label]['p-value']
-                significance = f"P={f'{p:.3f}'.lstrip('0')}"
+                significance = f"$\mathit{{P}}$={f'{p:.3f}'.lstrip('0')}"
             elif t_test_results[label]['p-value'] < 0.05:
                 p = t_test_results[label]['p-value']
-                significance = f"P={f'{p:.3f}'.lstrip('0')}"
+                significance = f"$\mathit{{P}}$={f'{p:.3f}'.lstrip('0')}"
             else:
                 significance = 'ns'
                 significance_present = 1
@@ -483,7 +484,7 @@ class ECGDataset:
 
             # Place the significance marker slightly above the max value
             ax.text(i, current_max + y_buffer, significance,
-                    horizontalalignment='center', fontsize=8, fontweight='bold')
+                    horizontalalignment='center', fontsize=9)
 
         if heart_measure == "nk_mean_nn":
             label_plot = "AVNN"
@@ -550,7 +551,7 @@ class ECGDataset:
         # Create legend with better formatting
         legend = ax.legend(handles=legend_items,
                            loc='upper left',
-                           bbox_to_anchor=(1.05, 1),
+                           bbox_to_anchor=(1., 1),
                            frameon=False,
                            framealpha=0.9,
                            edgecolor='lightgray',
