@@ -4,15 +4,12 @@ import os
 import re
 import argparse
 import json
-from typing import Optional, Tuple, Union, Any
+from typing import Optional
 import warnings
 warnings.filterwarnings("ignore")
 
-import torch
-
-from utils.helper_path import CLEANED_DATA_PATH, FEATURE_DATA_PATH, MODELS_PATH, CONFIG_PATH, RESULTS_PATH, FIGURES_PATH
-from utils.helper_argparse import validate_scaler, validate_category, validate_target_metric, validate_ml_model, \
-    validate_resampling_method
+from utils.helper_path import RESULTS_PATH, FIGURES_PATH
+from utils.helper_argparse import  validate_category
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -127,7 +124,6 @@ def plot_combined_calibration_curves(models: list[str], n_bins: int, bin_strateg
                 linewidth=2.0,
                 color=COLORS_DICT[model],
                 label=f"{MODELS_ABBREVIATION_DICT[model]} \nECE: {ece: .3f} "
-                      f"Brier score: {brier_score: .3f}"
             )
 
         except Exception as e:
@@ -325,7 +321,6 @@ def plot_feature_subset_comparison(results: dict,
                              reverse=True)
 
     # Define fixed color palette for feature sets
-    base_colors = ['#56B4E9', '#E69F00', '#009E73', '#D55E00', '#CC79A7']
 
     base_colors = [
         '#009ADE',
@@ -334,28 +329,12 @@ def plot_feature_subset_comparison(results: dict,
         '#FFC61E',
     ]
 
-    # base_colors = [
-    #     '#0d7d87',
-    #     '#99c6cc',
-    #     '#c31e23',
-    #     '#ff5a5e',
-    # ]
-    #
-    # base_colors = [
-    #     '#082a54',
-    #     '#e02b35',
-    #     '#f0c571',
-    #     '#59a89c',
-    # ]
-
-
     feature_colors = {
         fs: base_colors[i % len(base_colors)] for i, fs in enumerate(sorted_features)
     }
 
     # Reduce spacing between models
     x = np.arange(len(model_types)) * 0.3
-    # width = 0.08
     width = 0.05
 
     handles = {}
@@ -689,30 +668,41 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
                              [y_pos - tick_height, y_pos + tick_height],
                              'k-', linewidth=0.5)
 
-                    # Add significance stars (always ***)
                     x_text = (lr_x + xgb_x) / 2
-                    # plt.text(x_text, y_pos + tick_height, '***',
-                    #          ha='center', va='bottom', fontsize=10,
-                    #          weight='bold')
 
+                    # Some metrics do not have this but I need to check!
                     if metric == "roc_auc":
-                        # AUROC results are all significant at 0.01
-                        plt.text(x_text, y_pos + tick_height, 'p<0.01',
+                        # AUROC results are all significant at 0.001!
+                        # Check corresponding results frequency window and alpha
+                        plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$<.001",
                                  ha='center', va='bottom', fontsize=10,
-                                 weight='bold')
+                                 )
 
                     elif metric == "pr_auc":
-                        if sample_freqs[freq_idx] == 500:
-                            plt.text(x_text, y_pos + tick_height, 'p<0.05',
+                        if sample_freqs[freq_idx] == 1000:
+                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$<.001",
                                      ha='center', va='bottom', fontsize=10,
-                                     weight='bold')
+                                     )
+                        elif sample_freqs[freq_idx] == 500:
+                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.03",
+                                     ha='center', va='bottom', fontsize=10,
+                                     )
+                        elif sample_freqs[freq_idx] == 250:
+                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.01",
+                                     ha='center', va='bottom', fontsize=10,
+                                     )
+                        elif sample_freqs[freq_idx] == 125:
+                            plt.text(x_text, y_pos + tick_height, r"$\mathit{P}$=.01",
+                                     ha='center', va='bottom', fontsize=10,
+                                     )
+
                         else:
-                            plt.text(x_text, y_pos + tick_height, 'p<0.01',
+                            plt.text(x_text, y_pos + tick_height, 'P<.01',
                                      ha='center', va='bottom', fontsize=10,
                                      weight='bold')
 
                     else:
-                        plt.text(x_text, y_pos + tick_height, 'p<0.05',
+                        plt.text(x_text, y_pos + tick_height, 'P<.05',
                                  ha='center', va='bottom', fontsize=10,
                                  weight='bold')
 
@@ -1043,5 +1033,6 @@ if __name__ == "__main__":
     parser.add_argument("--resampling_method", default="smote", choices=("smote", "none"))
 
     args = parser.parse_args()
+    args.add_significance = True
     main(args)
 
