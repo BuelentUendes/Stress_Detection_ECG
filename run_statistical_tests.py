@@ -7,16 +7,17 @@ import json
 import argparse
 import warnings
 
-
 warnings.filterwarnings("ignore")
-import matplotlib.pyplot as plt
 from tqdm import tqdm
+import numpy as np
+from scipy import stats
+
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH
 from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
     get_resampled_data, get_performance_metric_bootstrapped, get_confidence_interval_mean)
 from utils.helper_argparse import validate_scaler, validate_category,  validate_ml_model, \
-    validate_resampling_method, validate_feature_subset
+    validate_resampling_method
 from main_training import load_best_params
 
 MODELS_ABBREVIATION_DICT = {
@@ -69,24 +70,73 @@ def calculate_differences(perf_dict, model1, model2):
     }
 
 
-def get_one_sided_p(delta_list, threshold, hypothesis="unequal"):
+def get_bootstrap_test_results(
+        delta_list,
+        observed_difference,
+        hypothesis="greater",
+        seed=42,
+        resample_null:bool=False
+):
     """
+    Compute p-value and z-statistic for bootstrap hypothesis test.
+
+    Test statistic: observed_difference (the actual difference from original data)
+    Null hypothesis H0: Δ = 0 (no difference between groups)
+    Alternative hypothesis H1: Δ > 0 (greater) or Δ ≠ 0 (unequal)
+
+    Parameters:
+    -----------
     delta_list: list of bootstrap differences Δ_i = metric_A − metric_B
-    Returns the one-sided p-value for H1: Δ > 0.
-    threshold: Given that there is no difference (zero mean), how likely is it to observe such a difference?
+    observed_difference: TEST STATISTIC - the actual observed difference from original data
+    hypothesis: "greater" (one-sided) or "unequal" (two-sided)
+    seed: random seed for reproducibility
+    resample_null: If we want to resample from the null, this adds additional noise
+
+    Returns:
+    --------
+    dict: containing p_val, z_stat, and bootstrap_se
     """
     B = len(delta_list)
     mean_delta = sum(delta_list) / B
 
-    # Center the bootstrap cloud so H0: Δ=0
-    null_dist = [d - mean_delta for d in delta_list]
+    # # Center the bootstrap distribution around zero (null hypothesis)
+    # null_dist = [d - mean_delta for d in delta_list]
 
-    # p = fraction of null-dist >= 0
+    # Convert to numpy array for easier indexing
+    null_dist = np.array(delta_list)
+
+    # Calculate bootstrap standard deviation from the centered null distribution
+    # In bootstrapping, the std is the standard error see here:
+    # From Effron's "Introduction to the Bootstrap" pg 47:
+    bootstrap_se = np.std(null_dist, ddof=1)  # Use sample standard deviation
+
+    # Calculate z-statistic: (observed - expected_under_H0) / SE
+    # Under H0, expected difference is 0
+    z_stat = observed_difference / bootstrap_se if bootstrap_se > 0 else np.inf
+
+    # Set up random number generator
+    rng = np.random.RandomState(seed)
+
+    if resample_null:
+    # Resample from the centered null distribution
+        null_dist = rng.choice(null_dist, size=B, replace=True)
+
+    # Calculate p-value based on hypothesis type
     if hypothesis == "greater":
-        p_val = sum(1 for d in null_dist if d >= threshold) / B
+        # H1: Δ > 0 (one-sided test)
+        p_val = np.sum(null_dist >= observed_difference) / B
     elif hypothesis == "unequal":
-        p_val = sum(1 for d in null_dist if abs(d) >= abs(threshold)) / B
-    return p_val
+        # H1: Δ ≠ 0 (two-sided test)
+        p_val = np.sum(np.abs(null_dist) >= np.abs(observed_difference)) / B
+    else:
+        raise ValueError("hypothesis must be 'greater' or 'unequal'")
+
+    return {
+        'p_val': p_val,
+        'z_stat': z_stat,
+        'bootstrap_sd': bootstrap_se,
+        'test_statistic': observed_difference
+    }
 
 
 def main(args):
@@ -150,6 +200,12 @@ def main(args):
         'f1_score': [],
     }
 
+    # For p value calculation we need to center the distribution
+    results_bootstrapped_p_value = {
+        'roc_auc': [],
+        'pr_auc': [],
+    }
+
     mean_difference_to_check = calculate_differences(performance_means, args.model_comparisons.split(",")[0],
                                                      args.model_comparisons.split(",")[1])
 
@@ -175,20 +231,14 @@ def main(args):
         results["balanced_accuracy"].append(balanced_accuracy_score_list[0] - balanced_accuracy_score_list[1])
         results["f1_score"].append(f1_score_list[0] - f1_score_list[1])
 
-
-    # # Plot here histpgram
-    # # ROC -AUC
-    # plt.hist(results["roc_auc"], bins=30)
-    # plt.axvline(0, linestyle="--")
-    # plt.title("Bootstrap distribution of ROC-AUC differences")
-    # plt.xlabel("Δ ROC-AUC (A–B)")
-    # plt.ylabel("Count")
-    # plt.show()
-    # plt.close()
+        bootstrap_diff = roc_auc_list[0] - roc_auc_list[1]
+        bootstrap_diff_pr = pr_auc_list[0] - pr_auc_list[1]
+        results_bootstrapped_p_value["roc_auc"].append(bootstrap_diff - mean_difference_to_check["roc_auc"])
+        results_bootstrapped_p_value["pr_auc"].append(bootstrap_diff_pr - mean_difference_to_check["pr_auc"])
 
     p_values = {
-        metric: get_one_sided_p(diffs, mean_difference_to_check[metric])
-        for metric, diffs in results.items()
+        metric: get_bootstrap_test_results(diffs, mean_difference_to_check[metric])
+        for metric, diffs in results_bootstrapped_p_value.items()
     }
 
     print("One-sided bootstrap p-values:", p_values)
@@ -206,30 +256,40 @@ def main(args):
                                                       bootstrap_method=args.bootstrap_method,
                                                       alpha=0.1)
 
+    # When the confidence interval excludes 0, then it is significant at that level!
+    # If not, we check the p-value respectively
     for metric, results_dict in final_diff_results_alpha10.items():
         final_diff_results_alpha10[metric][f"significant_@_10"]  = check_significance(results_dict)
-        final_diff_results_alpha10[metric][f"p_values"] = p_values
+        if metric in p_values.keys():
+            final_diff_results_alpha10[metric].update(p_values[metric])
+
         with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',','_')}_alpha_10.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha10, f, indent=4)
 
     for metric, results_dict in final_diff_results_alpha5.items():
         final_diff_results_alpha5[metric][f"significant_@_5"]  = check_significance(results_dict)
-        final_diff_results_alpha5[metric][f"p_values"] = p_values
+        if metric in p_values.keys():
+            final_diff_results_alpha5[metric].update(p_values[metric])
+        # final_diff_results_alpha5[metric][f"p_values"] = p_values
         with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_5.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha5, f, indent=4)
 
     for metric, results_dict in final_diff_results_alpha1.items():
         final_diff_results_alpha1[metric][f"significant_@_1"]  = check_significance(results_dict)
-        final_diff_results_alpha1[metric][f"p_values"] = p_values
+        if metric in p_values.keys():
+            final_diff_results_alpha1[metric].update(p_values[metric])
+        # final_diff_results_alpha1[metric][f"p_values"] = p_values
         with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_1.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha1, f, indent=4)
 
     for metric, results_dict in final_diff_results_alpha01.items():
         final_diff_results_alpha01[metric][f"significant_@_01"]  = check_significance(results_dict)
-        final_diff_results_alpha01[metric][f"p_values"] = p_values
+        if metric in p_values.keys():
+            final_diff_results_alpha01[metric].update(p_values[metric])
+        # final_diff_results_alpha01[metric][f"p_values"] = p_values
         with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_01.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha01, f, indent=4)
@@ -257,7 +317,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
-                        default=500, type=int)
+                        default=125, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default='10full',
