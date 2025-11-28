@@ -537,6 +537,9 @@ def main(args):
     best_model.fit(train_data[0], train_data[1])
 
     # Evaluate final model
+    # ToDo: test_data has a column called 'category' which indicates baseline, lpa or mpa
+    # Please include i the evaluate classifier an additional analysis that outpus the confusion matirx, so i can
+    # address the reviewrs comment
     evaluation_results = evaluate_classifier(
         best_model, train_data, val_data, test_data,
         save_path=results_path_best_performance,
@@ -581,7 +584,6 @@ def main(args):
             args.leave_out_stressor_name,
         )
 
-        #ToDo: Refactor this code:
         if not args.leave_one_out:
             set_seed(args.seed)
             final_bootstrapped_results_train = bootstrap_test_performance(
@@ -674,7 +676,9 @@ def main(args):
         )
 
         # Save brier score results:
-        with open(os.path.join(results_path_best_performance, f"bootstrapped_brier_scores_{args.resampling_method}.json"), "w") as f:
+        with open(os.path.join(
+                results_path_best_performance, f"bootstrapped_brier_scores_{args.resampling_method}.json"
+        ), "w") as f:
             json.dump(bootstrapped_brier_score_results, f, indent=4)
 
     # Feature coefficients for LR model
@@ -743,7 +747,7 @@ if __name__ == "__main__":
                         default="mental_stress",
                         type=validate_category)
     parser.add_argument("--negative_class", help="Which category should be 0",
-                        default="baseline",
+                        default="base_lpa_mpa",
                         type=validate_category)
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
@@ -760,10 +764,10 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
-                        type=validate_ml_model, default="lr")
+                        type=validate_ml_model, default="xgboost")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
-                        type=validate_resampling_method, default=None)
+                        type=validate_resampling_method, default='smote')
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--use_default_values", action="store_true",
                         help="if set, we do not do hyperparameter tuning and use the default values")
@@ -846,9 +850,9 @@ if __name__ == "__main__":
     args.bootstrap_subcategories = True
     args.add_calibration_plots = True
 
-    args.do_hyperparameter_tuning = True
+    # args.do_hyperparameter_tuning = True
     args.get_model_explanations = True if args.model_type != "rf" else False
-    args.resampling_method = "smote"
+    # args.resampling_method = "smote"
 
     # Set seed for reproducibility
     set_seed(args.seed)
