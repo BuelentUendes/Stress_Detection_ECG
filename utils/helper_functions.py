@@ -563,8 +563,9 @@ class ECGDataset:
         # Save the figure with high resolution
         save_path = os.path.join(save_path,
                                  f"boxplot_heart_rate_variability_reactivity_label_measure_{heart_measure}_reference_{reference}.png")
+        # Lower resolution for figure upload
+        # plt.savefig(save_path, dpi=500, bbox_inches='tight', format='png')
         plt.savefig(save_path, dpi=500, bbox_inches='tight', format='png')
-
         if show_plot:
             plt.show()
 
@@ -714,6 +715,8 @@ class ECGDataset:
             else:
                 save_path = os.path.join(save_path, f"histogram_{column}_baseline_included_{show_baseline}.png")
 
+            # plt.savefig(save_path, dpi=500, bbox_inches='tight')
+            # JMIR wants has restrictions
             plt.savefig(save_path, dpi=500, bbox_inches='tight')
             plt.close()
         if show_plot:
@@ -1910,19 +1913,28 @@ def get_bootstrapped_brier_score(
         alpha: float = 5.0,
 
 ):
+
+    #ToDo: Include a brier skill score
+    # The brier skill score is defined as: 1-(BS model/BS_reference)
+    # Potential a penalized brier score is better? (Here: https://www.sciencedirect.com/science/article/abs/pii/S0888613X25000623)
+
+    # Dummy classifier predicting always class 1 (as this is the majority)
+
     X_val, y_val, label_val = val_data
     X_test, y_test, label_test = test_data
 
     # Initialize results dictionary
     results = {
         'brier_score': [],
+        'brier_skill_score': []
     }
 
     for idx in range(bootstrap_samples):
         X_bootstrap_val, y_bootstrap_val = get_resampled_data(X_val, y_val, seed=idx)
         X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
         y_predictions = ml_model.predict_proba(X_bootstrap)[:, 1]
-        if isotonic_regressor is not None:
+        y_predictions_dummy = np.ones_like(y_predictions)
+        if isotonic_regressor is None:
             isotonic_regressor = IsotonicRegression(out_of_bounds="clip")
             p_val = ml_model.predict_proba(X_bootstrap_val)[:, 1]
             isotonic_regressor.fit(p_val, y_bootstrap_val)
@@ -1930,9 +1942,16 @@ def get_bootstrapped_brier_score(
             y_predictions = isotonic_regressor.transform(y_predictions)
 
         brier_score = np.mean((y_predictions - y_bootstrap) ** 2)
+        brier_score_dummy = np.mean((y_predictions_dummy - y_bootstrap)**2)
+
+        # Calculate Brier Skill Score: 1 - (BS_model / BS_reference)
+        brier_skill_score = 1 - (brier_score / brier_score_dummy) if brier_score_dummy > 0 else 0.0
 
         results["brier_score"].append(
             np.round(brier_score,4)
+        )
+        results["brier_skill_score"].append(
+            np.round(brier_skill_score,4)
         )
 
     final_results = get_confidence_interval_mean(results, bootstrap_method, alpha=alpha)
@@ -2562,7 +2581,7 @@ def plot_calibration_curve(y_test: np.array, predictions: np.array,
         ax.set_xlabel('Predicted Probability')
         ax.set_ylabel('True Probability in Each Bin')
         plt.legend()
-        plt.savefig(os.path.join(save_path, f'{resampling_method}_{bin_strategy}_{n_bins}_calibration_plot.png'), dpi=400, format="png")
+        plt.savefig(os.path.join(save_path, f'{resampling_method}_{bin_strategy}_{n_bins}_calibration_plot.png'), dpi=500, format="png")
         plt.clf()
 
         print(f"The ECE is {ece}. The brier score is {brier_score}")
