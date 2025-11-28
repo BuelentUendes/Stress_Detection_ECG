@@ -1747,6 +1747,350 @@ def find_best_threshold_score(ml_model: BaseEstimator,
     return best_threshold_performance_pair[0]
 
 
+def analyze_subcategory_confusion(
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        categories: pd.Series,
+        save_path: str,
+        save_name: str = None
+) -> dict:
+    """
+    Analyzes classification performance per subcategory with detailed confusion metrics.
+    Specifically addresses the concern about distinguishing MPA from mental stress.
+
+    Args:
+        y_true: True binary labels (0 or 1)
+        y_pred: Predicted binary labels (0 or 1)
+        categories: Original category labels (e.g., "baseline", "low_physical_activity", "moderate_physical_activity", etc.)
+        save_path: Path to save the confusion analysis
+        save_name: Name for the saved file
+
+    Returns:
+        Dictionary with confusion metrics per subcategory including:
+        - True Positives, False Positives, True Negatives, False Negatives
+        - Sensitivity (Recall), Specificity, Precision, F1-score
+        - Sample counts
+    """
+    from sklearn.metrics import confusion_matrix
+
+    # Mapping from subcategory labels to coarse-grained categories
+    ACTIVITY_CATEGORIES = {
+        # Mental Stress (MS)
+        'ta': 'MS',
+        'ssst': 'MS',
+        'pasat': 'MS',
+        'raven': 'MS',
+        'ta_repeat': 'MS',
+        'pasat_repeat': 'MS',
+
+        # Baseline (BL) - Sitting and Recovery periods
+        'baseline': 'BL',
+        'sitting': 'BL',
+        'recov1': 'BL',
+        'recov2': 'BL',
+        'recov3': 'BL',
+        'recov4': 'BL',
+        'recov5': 'BL',
+        'recov6': 'BL',
+        'recov_standing': 'BL',
+
+        # Light Physical Activity (LPA)
+        'low_physical_activity': 'LPA',
+        'standing': 'LPA',
+
+        # Moderate Physical Activity (MPA)
+        'moderate_physical_activity': 'MPA',
+        'walking_own_pace': 'MPA',
+        'dishes': 'MPA',
+        'vacuum': 'MPA',
+    }
+
+    # Get unique categories
+    unique_categories = categories.unique()
+
+    # Initialize results dictionary
+    confusion_analysis = {}
+
+    # Initialize coarse-grained category aggregation
+    coarse_grained_data = {
+        'MS': {'y_true': [], 'y_pred': []},
+        'BL': {'y_true': [], 'y_pred': []},
+        'LPA': {'y_true': [], 'y_pred': []},
+        'MPA': {'y_true': [], 'y_pred': []}
+    }
+
+    # Analyze each subcategory
+    for category in unique_categories:
+        # Get indices for this category
+        category_mask = (categories == category)
+
+        if not np.any(category_mask):
+            continue
+
+        # Get predictions and true labels for this category
+        y_true_cat = y_true[category_mask]
+        y_pred_cat = y_pred[category_mask]
+
+        # Aggregate into coarse-grained categories
+        coarse_cat = ACTIVITY_CATEGORIES.get(category.lower(), None)
+        if coarse_cat:
+            coarse_grained_data[coarse_cat]['y_true'].extend(y_true_cat.tolist())
+            coarse_grained_data[coarse_cat]['y_pred'].extend(y_pred_cat.tolist())
+
+        # Calculate confusion matrix
+        if len(np.unique(y_true_cat)) > 1:
+            # Both classes present
+            tn, fp, fn, tp = confusion_matrix(y_true_cat, y_pred_cat, labels=[0, 1]).ravel()
+        elif np.unique(y_true_cat)[0] == 0:
+            # Only negative class
+            tn = np.sum((y_pred_cat == 0))
+            fp = np.sum((y_pred_cat == 1))
+            fn = 0
+            tp = 0
+        else:
+            # Only positive class
+            tn = 0
+            fp = 0
+            fn = np.sum((y_pred_cat == 0))
+            tp = np.sum((y_pred_cat == 1))
+
+        # Calculate metrics
+        total = len(y_true_cat)
+        accuracy = (tp + tn) / total if total > 0 else 0
+
+        # Sensitivity (Recall) - ability to identify mental stress
+        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+
+        # Specificity - ability to correctly identify non-stress (crucial for MPA distinction)
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+
+        # Precision - when model predicts stress, how often is it correct
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+
+        # F1 score
+        f1 = 2 * (precision * sensitivity) / (precision + sensitivity) if (precision + sensitivity) > 0 else 0
+
+        # Store results for this category
+        confusion_analysis[category] = {
+            'sample_count': int(total),
+            'true_positives': int(tp),
+            'false_positives': int(fp),
+            'true_negatives': int(tn),
+            'false_negatives': int(fn),
+            'accuracy': round(float(accuracy), 4),
+            'sensitivity_recall': round(float(sensitivity), 4),
+            'specificity': round(float(specificity), 4),
+            'precision': round(float(precision), 4),
+            'f1_score': round(float(f1), 4),
+            'false_positive_rate': round(1 - float(specificity), 4),
+            'class_distribution': {
+                'mental_stress_samples': int(np.sum(y_true_cat == 1)),
+                'non_stress_samples': int(np.sum(y_true_cat == 0))
+            }
+        }
+
+    # Calculate coarse-grained category metrics
+    coarse_grained_metrics = {}
+    for coarse_cat, data in coarse_grained_data.items():
+        if len(data['y_true']) == 0:
+            continue
+
+        y_true_coarse = np.array(data['y_true'])
+        y_pred_coarse = np.array(data['y_pred'])
+
+        # Calculate confusion matrix
+        if len(np.unique(y_true_coarse)) > 1:
+            tn, fp, fn, tp = confusion_matrix(y_true_coarse, y_pred_coarse, labels=[0, 1]).ravel()
+        elif np.unique(y_true_coarse)[0] == 0:
+            tn = np.sum((y_pred_coarse == 0))
+            fp = np.sum((y_pred_coarse == 1))
+            fn = 0
+            tp = 0
+        else:
+            tn = 0
+            fp = 0
+            fn = np.sum((y_pred_coarse == 0))
+            tp = np.sum((y_pred_coarse == 1))
+
+        # Calculate metrics
+        total = len(y_true_coarse)
+        accuracy = (tp + tn) / total if total > 0 else 0
+        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        f1 = 2 * (precision * sensitivity) / (precision + sensitivity) if (precision + sensitivity) > 0 else 0
+
+        coarse_grained_metrics[coarse_cat] = {
+            'sample_count': int(total),
+            'true_positives': int(tp),
+            'false_positives': int(fp),
+            'true_negatives': int(tn),
+            'false_negatives': int(fn),
+            'accuracy': round(float(accuracy), 4),
+            'sensitivity_recall': round(float(sensitivity), 4),
+            'specificity': round(float(specificity), 4),
+            'precision': round(float(precision), 4),
+            'f1_score': round(float(f1), 4),
+            'false_positive_rate': round(1 - float(specificity), 4),
+            'class_distribution': {
+                'mental_stress_samples': int(np.sum(y_true_coarse == 1)),
+                'non_stress_samples': int(np.sum(y_true_coarse == 0))
+            }
+        }
+
+    # Create a summary focusing on physical activity categories
+    summary = {
+        'note': 'Specificity is key for distinguishing mental stress from physical activity (especially MPA)',
+        'coarse_grained_categories': coarse_grained_metrics,
+        'physical_activity_performance': {}
+    }
+
+    physical_categories = ['baseline', 'low_physical_activity', 'moderate_physical_activity', 'high_physical_activity']
+    for phys_cat in physical_categories:
+        if phys_cat in confusion_analysis:
+            summary['physical_activity_performance'][phys_cat] = {
+                'specificity': confusion_analysis[phys_cat]['specificity'],
+                'false_positive_rate': round(1 - confusion_analysis[phys_cat]['specificity'], 4),
+                'samples': confusion_analysis[phys_cat]['sample_count']
+            }
+
+    # Add summary to main results
+    confusion_analysis['summary'] = summary
+
+    # Create confusion plot
+    if save_path:
+        plot_confusion_matrix_subcategories(
+            y_true=y_true,
+            y_pred=y_pred,
+            categories=categories,
+            coarse_grained_metrics=coarse_grained_metrics,
+            save_path=save_path,
+            save_name=save_name
+        )
+
+    # Save detailed results
+    if save_path:
+        confusion_file_name = save_name.replace('.json', '_subcategory_confusion.json') if save_name else 'subcategory_confusion_analysis.json'
+        with open(os.path.join(save_path, confusion_file_name), 'w') as f:
+            json.dump(confusion_analysis, f, indent=4)
+
+    return confusion_analysis
+
+
+def plot_confusion_matrix_subcategories(
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        categories: pd.Series,
+        coarse_grained_metrics: dict,
+        save_path: str,
+        save_name: str = None
+):
+    """
+    Creates publication-quality confusion matrix visualization for coarse-grained categories.
+
+    Args:
+        y_true: True binary labels (0 or 1)
+        y_pred: Predicted binary labels (0 or 1)
+        categories: Original category labels
+        coarse_grained_metrics: Dictionary with coarse-grained category metrics
+        save_path: Path to save the plot
+        save_name: Name for the saved file
+    """
+    # Category display names
+    CATEGORY_NAMES = {
+        'MS': 'Mental Stress',
+        'BL': 'Baseline',
+        'LPA': 'Light Physical Activity',
+        'MPA': 'Moderate Physical Activity'
+    }
+
+    # Create figure with subplots for each coarse category
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    axes = axes.ravel()
+
+    # Set publication-quality style
+    plt.rcParams.update({
+        'font.family': 'Times New Roman',
+        'font.size': 12,
+        'axes.labelsize': 14,
+        'axes.titlesize': 14,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+    })
+
+    category_order = ['MS', 'BL', 'LPA', 'MPA']
+
+    for idx, cat in enumerate(category_order):
+        ax = axes[idx]
+
+        if cat not in coarse_grained_metrics:
+            ax.axis('off')
+            continue
+
+        metrics = coarse_grained_metrics[cat]
+
+        # Create confusion matrix array
+        cm = np.array([
+            [metrics['true_negatives'], metrics['false_positives']],
+            [metrics['false_negatives'], metrics['true_positives']]
+        ])
+
+        # Normalize for color intensity (percentage)
+        cm_percent = cm.astype('float') / cm.sum() * 100 if cm.sum() > 0 else cm
+
+        # Plot heatmap
+        im = ax.imshow(cm_percent, cmap='Blues', aspect='auto', vmin=0, vmax=100)
+
+        # Add text annotations
+        for i in range(2):
+            for j in range(2):
+                count = cm[i, j]
+                percent = cm_percent[i, j]
+                text_color = 'white' if percent > 50 else 'black'
+                ax.text(j, i, f'{count}\n({percent:.1f}%)',
+                       ha='center', va='center',
+                       color=text_color, fontsize=12, fontweight='bold')
+
+        # Customize axes
+        ax.set_xticks([0, 1])
+        ax.set_yticks([0, 1])
+        ax.set_xticklabels(['Predicted\nNon-Stress', 'Predicted\nStress'], fontsize=11)
+        ax.set_yticklabels(['True\nNon-Stress', 'True\nStress'], fontsize=11)
+
+        # Title with key metrics
+        title = f"{CATEGORY_NAMES[cat]}\n"
+        title += f"Spec: {metrics['specificity']:.3f} | Sens: {metrics['sensitivity_recall']:.3f} | "
+        title += f"F1: {metrics['f1_score']:.3f}\n"
+        title += f"N = {metrics['sample_count']}"
+        ax.set_title(title, fontsize=12, fontweight='bold', pad=10)
+
+        # Add colorbar for first plot only
+        if idx == 0:
+            cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label('Percentage (%)', rotation=270, labelpad=20, fontsize=11)
+
+    # Add main title
+    fig.suptitle('Confusion Matrix Analysis: Coarse-Grained Categories\n' +
+                 'Mental Stress vs. Non-Stress Classification',
+                 fontsize=16, fontweight='bold', y=0.98)
+
+    # Add footer with note
+    footer_text = (
+        'Note: Specificity indicates how well the model avoids falsely classifying physical activity as mental stress.\n'
+        'High specificity for MPA is crucial to demonstrate the model distinguishes metabolic demand from mental stress.'
+    )
+    fig.text(0.5, 0.02, footer_text, ha='center', fontsize=10, style='italic', wrap=True)
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.96])
+
+    # Save figure
+    if save_path and save_name:
+        plot_file_name = save_name.replace('.json', '_confusion_matrix.png')
+        plt.savefig(os.path.join(save_path, plot_file_name), dpi=300, bbox_inches='tight')
+
+    plt.close()
+
+
 def evaluate_classifier(ml_model: BaseEstimator,
                         train_data: tuple[np.ndarray, np.ndarray],
                         val_data: Optional[tuple[np.ndarray, np.ndarray]] = None,
@@ -1863,6 +2207,27 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
     else:
         raise NotImplementedError("We have not yet implemented multiclass classification")
+
+    # Confusion matrix analysis for subcategories (addresses reviewer concern about MPA vs mental stress)
+    if test_data[2] is not None:
+        # Get predictions at F1 threshold
+        y_pred_proba = ml_model.predict_proba(test_data[0])[:, 1]
+        y_pred = np.where(y_pred_proba >= best_val_threshold_f1_score, 1, 0)
+
+        # Extract original category labels
+        original_categories = test_data[2]
+
+        # Create confusion analysis per subcategory
+        subcategory_confusion = analyze_subcategory_confusion(
+            y_true=test_data[1],
+            y_pred=y_pred,
+            categories=original_categories,
+            save_path=save_path,
+            save_name=save_name
+        )
+
+        # Add subcategory-specific metrics to results
+        results['subcategory_confusion_matrix'] = subcategory_confusion
 
     if verbose:
         print(results)
