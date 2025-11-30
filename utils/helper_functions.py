@@ -2070,16 +2070,16 @@ def plot_confusion_matrix_subcategories(
             cbar.set_label('Percentage (%)', rotation=270, labelpad=20, fontsize=11)
 
     # Add main title
-    fig.suptitle('Confusion Matrix Analysis: Coarse-Grained Categories\n' +
-                 'Mental Stress vs. Non-Stress Classification',
-                 fontsize=16, fontweight='bold', y=0.98)
+    # fig.suptitle('Confusion Matrix Analysis: Coarse-Grained Categories\n' +
+    #              'Mental Stress vs. Non-Stress Classification',
+    #              fontsize=16, fontweight='bold', y=0.98)
 
-    # Add footer with note
-    footer_text = (
-        'Note: Specificity indicates how well the model avoids falsely classifying physical activity as mental stress.\n'
-        'High specificity for MPA is crucial to demonstrate the model distinguishes metabolic demand from mental stress.'
-    )
-    fig.text(0.5, 0.02, footer_text, ha='center', fontsize=10, style='italic', wrap=True)
+    # # Add footer with note
+    # footer_text = (
+    #     'Note: Specificity indicates how well the model avoids falsely classifying physical activity as mental stress.\n'
+    #     'High specificity for MPA is crucial to demonstrate the model distinguishes metabolic demand from mental stress.'
+    # )
+    # fig.text(0.5, 0.02, footer_text, ha='center', fontsize=10, style='italic', wrap=True)
 
     plt.tight_layout(rect=[0, 0.05, 1, 0.96])
 
