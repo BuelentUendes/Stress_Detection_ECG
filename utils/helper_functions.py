@@ -793,17 +793,32 @@ class ECGDataset:
 
 
 #ToDo: Really refactor this code!
+# Remove all recov_[1-6], and also also recov_standing
+# There is a sitting condition in there
+# Also standing and sitting (these are good)
+
 def encode_data(
         data: pd.DataFrame,
         positive_class: str,
         negative_class: str,
+        exclude_recovery: bool,
         leave_one_out: bool,
         leave_out_stressor_name: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    #ToDo: if exclude recovery is set, then we need to remove the recovery condition
+    # Remove all recov_[1-6], and also also recov_standing
+    # There is a sitting condition in there
+    # Also standing and sitting (these are good)
     # First drop data that is not either in the positive class or negative class
     # How can make all labels lower case and rename ssst
     data["label"] = data["label"].str.lower()
     data["label"] = data["label"].str.replace('ssst_sing_countdown', 'ssst', regex=False)
+
+    if exclude_recovery:
+        recovery_conditions = [
+            "recov1", "recov2", "recov3", "recov4", "recov5", "recov6", "recov_standing"
+        ]
+        data = data[~data["label"].isin(recovery_conditions)]
 
     positive_single_classes = ["ssst", "raven", "ta", "pasat", "pasat_repeat", "ta_repeat"]
     # Special case for any_physical_activity vs non_physical_activity
@@ -1315,6 +1330,7 @@ def prepare_data(train_data: pd.DataFrame,
                  imputation_method: Optional[str] = "knn",
                  positive_class: Optional[str] = "mental_stress",
                  negative_class: Optional[str] = "baseline",
+                 exclude_recovery: Optional[bool] = False,
                  resampling_method: Optional[str] = None,
                  balance_positive_sublabels: Optional[bool] = False,
                  balance_sublabels_method: Optional[str] = "upsample",
@@ -1336,6 +1352,7 @@ def prepare_data(train_data: pd.DataFrame,
         imputation_method: Optional. Str. Either 'drop', 'knn', 'knn_subset', or 'iterative_imputer'
         positive_class: str, which category to be encoded as 1
         negative_class: str, which category to be encoded as 0
+        exclude_recovery: bool: if set, we exclude the recovery conditions
         resampling_method: str, resampling method to use. Options: None, "downsample", "upsample", "smote", "adasyn"
         balance_positive_sublabels: bool, whether to balance sublabels within the positive class
         balance_sublabels_method: str, "upsample" or "downsample" the sublabels within positive class
@@ -1407,7 +1424,9 @@ def prepare_data(train_data: pd.DataFrame,
 
     # If no resampling, just shuffle and encode the data
     train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
-    x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class,
+
+    #ToDo: Here I need to exclude the recovery condition
+    x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class, exclude_recovery,
                                                leave_one_out, leave_out_stressor_name)
 
     # We have not yet cleaned up missing values, so we replace them with nan values first
@@ -1415,7 +1434,7 @@ def prepare_data(train_data: pd.DataFrame,
 
     # Could we handle the missing data here?
     if val_data is not None:
-        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class,
+        x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class, exclude_recovery,
                                               leave_one_out, leave_out_stressor_name)
         x_val = x_val.replace([np.inf, -np.inf], np.nan)
 
@@ -1423,7 +1442,7 @@ def prepare_data(train_data: pd.DataFrame,
         # In  test data we never leave out any stressor, only test and val data
         leave_one_out = False
 
-        x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class,
+        x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class, exclude_recovery,
                                                  leave_one_out, leave_out_stressor_name)
         x_test = x_test.replace([np.inf, -np.inf], np.nan)
 

@@ -369,6 +369,9 @@ def main(args):
     # Create path folder depending on the comparison we are trying to do
     comparison = f"{LABEL_ABBREVIATION_DICT[args.positive_class]}_{LABEL_ABBREVIATION_DICT[args.negative_class]}"
 
+    if args.exclude_recovery:
+        comparison = f"{comparison}_recovery_excluded"
+
     results_path_root = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison,
                                 args.model_type.lower())
 
@@ -504,6 +507,7 @@ def main(args):
     train_data, val_data, test_data, feature_names = prepare_data(train_data, val_data, test_data,
                                                                   positive_class=args.positive_class,
                                                                   negative_class=args.negative_class,
+                                                                  exclude_recovery=args.exclude_recovery,
                                                                   resampling_method=args.resampling_method,
                                                                   balance_positive_sublabels=args.balance_positive_sublabels,
                                                                   balance_sublabels_method=args.balance_sublabels_method,
@@ -538,8 +542,7 @@ def main(args):
 
     # Evaluate final model
     # ToDo: test_data has a column called 'category' which indicates baseline, lpa or mpa
-    # Please include i the evaluate classifier an additional analysis that outpus the confusion matirx, so i can
-    # address the reviewrs comment
+
     evaluation_results = evaluate_classifier(
         best_model, train_data, val_data, test_data,
         save_path=results_path_best_performance,
@@ -749,6 +752,8 @@ if __name__ == "__main__":
     parser.add_argument("--negative_class", help="Which category should be 0",
                         default="base_lpa_mpa",
                         type=validate_category)
+    parser.add_argument("--exclude_recovery", help="If set, we exclude recovery conditions",
+                        action="store_true")
     parser.add_argument("--standard_scaler", help="Which standard scaler to use. "
                                                   "Choose from 'standard_scaler' or 'min_max'",
                         type=validate_scaler,
@@ -764,7 +769,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
-                        type=validate_ml_model, default="xgboost")
+                        type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default='smote')
@@ -846,11 +851,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.verbose = True
+    args.exclude_recovery = True
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
     args.add_calibration_plots = True
 
-    # args.do_hyperparameter_tuning = True
+    args.do_hyperparameter_tuning = True
     args.get_model_explanations = True if args.model_type != "rf" else False
     # args.resampling_method = "smote"
 
