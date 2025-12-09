@@ -15,7 +15,7 @@ from MLstatkit.stats import Delong_test
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH
 from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
-    get_resampled_data, get_performance_metric_bootstrapped, get_confidence_interval_mean)
+    get_resampled_data, get_resampled_data_subject_level, get_performance_metric_bootstrapped, get_confidence_interval_mean)
 from utils.helper_argparse import validate_scaler, validate_category,  validate_ml_model, \
     validate_resampling_method
 from main_training import load_best_params
@@ -173,8 +173,8 @@ def main(args):
     results_path_root = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison)
     ecg_dataset = ECGDataset(target_data_path)
     # Get the regular datasplit for the normal between people split
-    train_data, val_data, test_data, participant_test_index_dict = ecg_dataset.get_data()
-    train_data, val_data, test_data, feature_names, _ = prepare_data(train_data, val_data, test_data, participant_test_index_dict,
+    train_data, val_data, test_data, test_data_idx = ecg_dataset.get_data()
+    train_data, val_data, test_data, feature_names, test_data_participant_idx_dict = prepare_data(train_data, val_data, test_data, test_data_idx,
                                                                   positive_class=args.positive_class,
                                                                   negative_class=args.negative_class,
                                                                   resampling_method=args.resampling_method,
@@ -251,8 +251,14 @@ def main(args):
     mean_difference_to_check = calculate_differences(performance_means, args.model_comparisons.split(",")[0],
                                                      args.model_comparisons.split(",")[1])
 
-    for idx in tqdm(range(args.bootstrap_samples), desc="Bootstrapping", unit="it"):
-        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+    for idx in tqdm(range(args.bootstrap_samples), desc=f"Bootstrapping @ {args.bootstrap_level} level", unit="it"):
+
+        if args.bootstrap_level == "window":
+            X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+        else: #bootstrap_level is subject
+            X_bootstrap, y_bootstrap = get_resampled_data_subject_level(
+                X_test, y_test, test_data_participant_idx_dict, seed=idx
+            )
 
         roc_auc_list = []
         pr_auc_list = []
@@ -305,7 +311,7 @@ def main(args):
         if metric in p_values.keys():
             final_diff_results_alpha10[metric].update(p_values[metric])
 
-        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',','_')}_alpha_10.json"),
+        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',','_')}_alpha_10_{args.bootstrap_level}.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha10, f, indent=4)
 
@@ -313,8 +319,7 @@ def main(args):
         final_diff_results_alpha5[metric][f"significant_@_5"]  = check_significance(results_dict)
         if metric in p_values.keys():
             final_diff_results_alpha5[metric].update(p_values[metric])
-        # final_diff_results_alpha5[metric][f"p_values"] = p_values
-        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_5.json"),
+        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_5_{args.bootstrap_level}.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha5, f, indent=4)
 
@@ -322,8 +327,7 @@ def main(args):
         final_diff_results_alpha1[metric][f"significant_@_1"]  = check_significance(results_dict)
         if metric in p_values.keys():
             final_diff_results_alpha1[metric].update(p_values[metric])
-        # final_diff_results_alpha1[metric][f"p_values"] = p_values
-        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_1.json"),
+        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_1_{args.bootstrap_level}.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha1, f, indent=4)
 
@@ -331,8 +335,7 @@ def main(args):
         final_diff_results_alpha01[metric][f"significant_@_01"]  = check_significance(results_dict)
         if metric in p_values.keys():
             final_diff_results_alpha01[metric].update(p_values[metric])
-        # final_diff_results_alpha01[metric][f"p_values"] = p_values
-        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_01.json"),
+        with open(os.path.join(root_path, f"statistical_test_{args.model_comparisons.replace(',', '_')}_alpha_01_{args.bootstrap_level}.json"),
                   "w") as f:
             json.dump(final_diff_results_alpha01, f, indent=4)
 
@@ -359,7 +362,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
-                        default=1_000, type=int)
+                        default=125, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default='10full',
@@ -397,6 +400,10 @@ if __name__ == "__main__":
     parser.add_argument("--balance_sublabels_method", choices=("downsample", "upsample", "smote"),
                         help="What method to use for the sublabel balancing.", type=str,
                         default="downsample")
+    parser.add_argument("--bootstrap_level", choices=("window", "subject"),
+                        help="Bootstrap level: 'window' for observation-level (default) or 'subject' "
+                             "for cluster-level bootstrapping. IMPORTANT: Subject level does not account for autocorrelation.",
+                        type=str, default="subject")
 
     args = parser.parse_args()
     set_seed(args.seed)
