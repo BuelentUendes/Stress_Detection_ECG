@@ -11,7 +11,7 @@ warnings.filterwarnings("ignore")
 from tqdm import tqdm
 import numpy as np
 from scipy import stats
-
+from MLstatkit.stats import Delong_test
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH
 from utils.helper_functions import (set_seed, ECGDataset, prepare_data, get_ml_model, \
@@ -57,9 +57,9 @@ LABEL_ABBREVIATION_DICT = {
 
 def check_significance(result):
     if (result["ci_lower"] < 0)  and (result["ci_upper"] >=0):
-        return "not_significant"
+        return "not_significant (based on confidence interval. Double-check with p-value)"
     else:
-        return "significant"
+        return "significant (based on confidence interval. Double-check with p-value)"
 
 
 def calculate_differences(perf_dict, model1, model2):
@@ -79,6 +79,10 @@ def get_bootstrap_test_results(
 ):
     """
     Compute p-value and z-statistic for bootstrap hypothesis test.
+    # We follow the approach:
+    # Two Guidelines for Bootstrap Hypothesis Testing
+    # Peter Hall, Susan R. Wilson
+    # Biometrics, Vol. 47, No. 2 (Jun., 1991), pp. 757-762 (6 pages)
 
     Test statistic: observed_difference (the actual difference from original data)
     Null hypothesis H0: Δ = 0 (no difference between groups)
@@ -135,9 +139,30 @@ def get_bootstrap_test_results(
         'p_val': p_val,
         'z_stat': z_stat,
         'bootstrap_sd': bootstrap_se,
-        'test_statistic': observed_difference
+        'Observed difference to test': observed_difference
     }
 
+
+def get_delong_statistical_test(
+        model_comparisons,
+        model_dict,
+        X_test,
+        y_test,
+):
+
+    if len(model_comparisons) == 2:
+        delong_test_proba = {}
+        # Now test the models with the fit and compare the AUROC score with the DeLong test
+        for model_name, model in model_dict.items():
+            delong_test_proba[model_name] = model.predict_proba(X_test)[:, 1]
+
+    z_score, p_value = Delong_test(
+        y_test, delong_test_proba[model_comparisons[0]], delong_test_proba[model_comparisons[1]],
+        return_ci=False, return_auc=False, verbose=0
+    )
+
+    print(z_score, p_value)
+    return z_score, p_value
 
 def main(args):
 
@@ -148,8 +173,8 @@ def main(args):
     results_path_root = os.path.join(RESULTS_PATH, str(args.sample_frequency), str(args.window_size), comparison)
     ecg_dataset = ECGDataset(target_data_path)
     # Get the regular datasplit for the normal between people split
-    train_data, val_data, test_data = ecg_dataset.get_data()
-    train_data, val_data, test_data, feature_names = prepare_data(train_data, val_data, test_data,
+    train_data, val_data, test_data, participant_test_index_dict = ecg_dataset.get_data()
+    train_data, val_data, test_data, feature_names, _ = prepare_data(train_data, val_data, test_data, participant_test_index_dict,
                                                                   positive_class=args.positive_class,
                                                                   negative_class=args.negative_class,
                                                                   resampling_method=args.resampling_method,
@@ -186,13 +211,30 @@ def main(args):
         with open(os.path.join(performance_path, performance_file_name)) as f:
             performance_dict = json.load(f)
             performance_values = {
-                metric: values["mean"] for metric, values in performance_dict.items()
+                metric: values["mean"] for metric, values in performance_dict.items() if metric != "bootstrap_level"
             }
             performance_means[model_name] = performance_values
         f1_score_thresholds[model_name] = classification_threshold
 
 
     X_test, y_test, label_test = test_data
+
+
+    # Check if we have two models in there, as DeLong is pairwise:
+    if len(model_comparisons) == 2:
+        z_score, p_value = get_delong_statistical_test(model_comparisons, model_dict, X_test, y_test)
+        results_de_long_test = {
+            "z_score": z_score,
+            "p_value": p_value,
+        }
+
+    print(f"Results De Long Test: {args.model_comparisons}: "
+          f"z_score: {z_score}, p_value: {p_value}")
+
+    with open(os.path.join(root_path, f"de_long_statistical_test_{args.model_comparisons.replace(',', '_')}.json"),
+              "w") as f:
+        json.dump(results_de_long_test, f, indent=4)
+
     results = {
         'roc_auc': [],
         'pr_auc': [],
@@ -317,7 +359,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_quantile_transformer", action="store_true")
     parser.add_argument("--sample_frequency",
                         help="which sample frequency to use for the training",
-                        default=125, type=int)
+                        default=1_000, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default='10full',
@@ -331,7 +373,7 @@ if __name__ == "__main__":
                         type=validate_resampling_method, default="smote")
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--bootstrap_samples", help="number of bootstrap samples.",
-                        default=200, type=int) # What happens if I do 1000? samples, so far the analysis is with 200
+                        default=1_000, type=int)
     parser.add_argument("--bootstrap_method",
                         help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
                         default="quantile")
