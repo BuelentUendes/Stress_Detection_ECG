@@ -10,7 +10,6 @@ import warnings
 warnings.filterwarnings("ignore")
 from tqdm import tqdm
 import numpy as np
-from scipy import stats
 from MLstatkit.stats import Delong_test
 
 from utils.helper_path import FEATURE_DATA_PATH, RESULTS_PATH
