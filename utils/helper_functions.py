@@ -2016,6 +2016,8 @@ def analyze_subcategory_confusion(
     coarse_grained_data = {
         'MS': {'y_true': [], 'y_pred': []},
         'BL': {'y_true': [], 'y_pred': []},
+        'BL_True': {'y_true': [], 'y_pred': []},  # True baseline (sitting/baseline only)
+        'BL_Recovery': {'y_true': [], 'y_pred': []},  # Recovery conditions
         'LPA': {'y_true': [], 'y_pred': []},
         'MPA': {'y_true': [], 'y_pred': []}
     }
@@ -2037,6 +2039,15 @@ def analyze_subcategory_confusion(
         if coarse_cat:
             coarse_grained_data[coarse_cat]['y_true'].extend(y_true_cat.tolist())
             coarse_grained_data[coarse_cat]['y_pred'].extend(y_pred_cat.tolist())
+
+            # Also aggregate into BL_True or BL_Recovery for baseline categories
+            if coarse_cat == 'BL':
+                if category.lower() in ['baseline', 'sitting']:
+                    coarse_grained_data['BL_True']['y_true'].extend(y_true_cat.tolist())
+                    coarse_grained_data['BL_True']['y_pred'].extend(y_pred_cat.tolist())
+                else:  # Recovery conditions
+                    coarse_grained_data['BL_Recovery']['y_true'].extend(y_true_cat.tolist())
+                    coarse_grained_data['BL_Recovery']['y_pred'].extend(y_pred_cat.tolist())
 
         # Calculate confusion matrix
         if len(np.unique(y_true_cat)) > 1:
