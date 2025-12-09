@@ -4,16 +4,10 @@ import os
 import random
 import json
 import yaml
-from typing import Optional, Tuple, Union, Any
 
-from mne.simulation.metrics import recall_score
-from scipy import stats
 import torch
 from torchmetrics.functional.classification import binary_calibration_error
-from numpy import ndarray
 from optuna import Trial
-from pandas import Series, DataFrame
-from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
@@ -22,7 +16,7 @@ from scipy.stats import ttest_1samp
 
 from numpy.testing import assert_almost_equal
 import pandas as pd
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, QuantileTransformer
 from sklearn import metrics
@@ -48,16 +42,10 @@ from sklearn.feature_selection import RFE
 import optuna
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import roc_auc_score, balanced_accuracy_score
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from typing import Optional, Tuple, Dict, Union, List
-import warnings
-import umap
-import time
-from matplotlib.patches import Patch
-from utils.helper_path import FIGURES_PATH
-from sklearn.manifold import TSNE
+from tqdm import tqdm
 
 
 def create_directory(path: str) -> None:
@@ -102,6 +90,33 @@ def report_nans(df, name="data"):
         print(cols_with_nans)
     else:
         print(f"No NaNs in {name}.")
+
+
+def add_window_position_in_activity(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds a 'window_position_in_activity' column to track temporal ordering of windows
+    within each activity period for each participant.
+
+    For each unique combination of (participant_id, label), windows are numbered
+    sequentially starting from 0. This enables temporal analysis of model performance
+    (e.g., comparing early vs. late recovery windows).
+
+    :param df: DataFrame containing at least 'label' column (and 'participant_id' if present)
+    :return: DataFrame with added 'window_position_in_activity' column
+    """
+    # Check if participant_id exists in the dataframe
+    if 'participant_id' in df.columns:
+        # Group by both participant_id and label (activity)
+        grouping_cols = ['participant_id', 'label']
+    else:
+        # Group by label only (assumes single participant or pre-split data)
+        grouping_cols = ['label']
+
+    # Add window position by creating a counter within each group
+    # cumcount() returns 0-indexed position within each group
+    df['window_position_in_activity'] = df.groupby(grouping_cols).cumcount()
+
+    return df
 
 
 class ECGDataset:
@@ -163,6 +178,10 @@ class ECGDataset:
                 print(f"Error reading {file_path}: {e}")  # Handle exceptions
 
         combined_df = pd.concat(dataframes, ignore_index=True)  # Concatenate all DataFrames
+
+        # Add window position tracking for temporal analysis
+        # combined_df = add_window_position_in_activity(combined_df)
+
         return combined_df  # Return the combined DataFrame
 
     def _split_data_by_condition(self, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -766,8 +785,16 @@ class ECGDataset:
         self.train_data = self._load_data(train_files)
         self.val_data = self._load_data(val_files)
         self.test_data = self._load_data(test_files)
+        self.test_data_idx = self._load_data(test_files, add_participant_id=True)
 
-        # Find the idx where split should occur "Recovery standing"
+        # self.participant_test_index_dict = {
+        #     pid: list(idx)  # list of integer indices into df
+        #     for pid, idx in self.test_data.groupby("participant_id").groups.items()
+        # }
+
+        # self.test_data = self.test_data.drop(["participant_id"], axis=1)
+        # #
+        # # Find the idx where split should occur "Recovery standing"
         if self.add_participant_id:
             self.train_data_within, self.test_data_within = self._split_data_by_condition(self.total_data)
             # Get rid of the participant id as we do not need it anymore
@@ -775,6 +802,7 @@ class ECGDataset:
             self.test_data_within = self.test_data_within.drop(["participant_id"], axis=1)
             self.train_data = self.train_data.drop(["participant_id"], axis=1)
             self.val_data = self.val_data.drop(["participant_id"], axis=1)
+            # We dropped the self.test_data already so no need to drop it
             self.test_data = self.test_data.drop(["participant_id"], axis=1)
 
     def get_feature_selection_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -784,18 +812,13 @@ class ECGDataset:
         """
         return self.train_feature_selection, self.val_feature_selection
 
-    def get_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def get_data(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        returns the datasets split in train, val and test data
+        returns the datasets split in train, val and test data and the participant_test_index_dict
         :return:
         """
-        return self.train_data, self.val_data, self.test_data
+        return self.train_data, self.val_data, self.test_data, self.test_data_idx
 
-
-#ToDo: Really refactor this code!
-# Remove all recov_[1-6], and also also recov_standing
-# There is a sitting condition in there
-# Also standing and sitting (these are good)
 
 def encode_data(
         data: pd.DataFrame,
@@ -953,7 +976,6 @@ def encode_data(
 
 def handle_missing_data(data: pd.DataFrame, drop_values = True) -> pd.DataFrame:
     original_data_len = len(data)
-
 
     # Identify rows and columns with infinity values
     inf_mask = data.isin([np.inf, -np.inf])
@@ -1327,6 +1349,7 @@ def analyze_feature_distributions(df: pd.DataFrame, alpha: float = 0.05):
 def prepare_data(train_data: pd.DataFrame,
                  val_data: pd.DataFrame,
                  test_data: Optional[pd.DataFrame] = None,
+                 test_data_idx: Optional[pd.DataFrame]=None,
                  imputation_method: Optional[str] = "knn",
                  positive_class: Optional[str] = "mental_stress",
                  negative_class: Optional[str] = "baseline",
@@ -1425,14 +1448,12 @@ def prepare_data(train_data: pd.DataFrame,
     # If no resampling, just shuffle and encode the data
     train_data = train_data.sample(frac=1, replace=False, random_state=42).reset_index(drop=True)
 
-    #ToDo: Here I need to exclude the recovery condition
     x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class, exclude_recovery,
                                                leave_one_out, leave_out_stressor_name)
 
     # We have not yet cleaned up missing values, so we replace them with nan values first
     x_train = x_train.replace([np.inf, -np.inf], np.nan)
 
-    # Could we handle the missing data here?
     if val_data is not None:
         x_val, label_val, y_val = encode_data(val_data, positive_class, negative_class, exclude_recovery,
                                               leave_one_out, leave_out_stressor_name)
@@ -1440,11 +1461,35 @@ def prepare_data(train_data: pd.DataFrame,
 
     if test_data is not None:
         # In  test data we never leave out any stressor, only test and val data
-        leave_one_out = False
-
+        # so leave_one_out is set to False
         x_test, label_test, y_test = encode_data(test_data, positive_class, negative_class, exclude_recovery,
-                                                 leave_one_out, leave_out_stressor_name)
+                                                 False, leave_out_stressor_name)
         x_test = x_test.replace([np.inf, -np.inf], np.nan)
+
+    if test_data_idx is not None:
+        # In  test data we never leave out any stressor, only test and val data
+        x_test_idx_all, _, _ = encode_data(test_data_idx, positive_class, negative_class, exclude_recovery,
+                                                 False, leave_out_stressor_name)
+
+        x_test_idx_left, _, _ = encode_data(test_data_idx, positive_class, negative_class, exclude_recovery,
+                                                 leave_one_out, leave_out_stressor_name)
+
+        x_test_idx_all = x_test_idx_all.replace([np.inf, -np.inf], np.nan)
+        x_test_idx_left = x_test_idx_left.replace([np.inf, -np.inf], np.nan)
+
+        # These now include everything (all conditions which we need), but for the in-distribution we need to exclude
+        # the leave out stressor so we encode the data without the stressor and return this as well.
+        # the x_test_idx is the key
+
+        participant_test_index_dict_all = {
+            pid: list(idx)  # list of integer indices into df
+            for pid, idx in x_test_idx_all.groupby("participant_id").groups.items()
+        }
+
+        participant_test_index_dict_left = {
+            pid: list(idx)  # list of integer indices into df
+            for pid, idx in x_test_idx_left.groupby("participant_id").groups.items()
+        }
 
     # Ensure the length of use_subset matches the number of features
     if use_subset is not None:
@@ -1574,12 +1619,12 @@ def prepare_data(train_data: pd.DataFrame,
 
     # Return appropriate tuple based on whether test_data was provided
     if test_data is not None and val_data is not None:
-        return (x_train, y_train, label_train), (x_val, y_val, label_val), (x_test, y_test, label_test), feature_names
+        return (x_train, y_train, label_train), (x_val, y_val, label_val), (x_test, y_test, label_test), feature_names, participant_test_index_dict_all, participant_test_index_dict_left
     else:
         if val_data is not None:
             return (x_train, y_train, label_train), (x_val, y_val, label_val), feature_names
         else:
-            return (x_train, y_train, label_train), None, (x_test, y_test, label_test), feature_names
+            return (x_train, y_train, label_train), None, (x_test, y_test, label_test), feature_names, participant_test_index_dict_all, participant_test_index_dict_left
 
 
 def normalize_data(train_data: pd.DataFrame) -> tuple:
@@ -1764,6 +1809,143 @@ def find_best_threshold_score(ml_model: BaseEstimator,
             best_threshold_performance_pair = (threshold, performance)
 
     return best_threshold_performance_pair[0]
+
+
+def analyze_recovery_window_position_performance(
+        ml_model: BaseEstimator,
+        test_data: tuple[np.ndarray, np.ndarray, pd.Series],
+        f1_threshold: float,
+        window_position_column: pd.Series,
+        split_percentage: float = 0.5,
+        save_path: str = None,
+        save_name: str = None
+) -> dict:
+    """
+    Analyzes performance metrics comparing the first X% vs remaining (100-X)% of windows
+    within each recovery period, then aggregates across all recovery periods.
+
+    For each recovery period (recov1, recov2, etc.), splits windows into first X% and last (100-X)%
+    based on their position within that specific recovery period. Then calculates performance metrics
+    (pr_auc, roc_auc, f1_score, balanced_accuracy) separately for:
+    - All first X% windows aggregated across all recovery periods
+    - All last (100-X)% windows aggregated across all recovery periods
+
+    Args:
+        ml_model: Trained sklearn model
+        test_data: Tuple of (X_test, y_test, categories) where categories contains recovery period labels
+        f1_threshold: Classification threshold optimized for F1 score
+        window_position_column: Series containing window_position_in_activity for each sample
+        split_percentage: Percentage (0-1) to split windows (default 0.5 for 50%)
+        save_path: Path to save results
+        save_name: Name for the saved file
+
+    Returns:
+        Dictionary with performance metrics for first_half and second_half windows
+    """
+
+    X_test, y_test, categories = test_data
+
+    # Identify recovery periods
+    recovery_periods = ['recov1', 'recov2', 'recov3', 'recov4', 'recov5', 'recov6']
+
+    # Collect indices for first and second halves across all recovery periods
+    first_half_indices = []
+    second_half_indices = []
+
+    # For each recovery period, split windows by position
+    for recovery_period in recovery_periods:
+        # Get mask for this recovery period (case-insensitive)
+        recovery_mask = categories.str.lower() == recovery_period.lower()
+
+        if not np.any(recovery_mask):
+            continue
+
+        # Get window positions for this recovery period
+        recovery_indices = np.where(recovery_mask)[0]
+        recovery_window_positions = window_position_column.iloc[recovery_indices].values
+
+        # Calculate the split point for this recovery period
+        max_position = recovery_window_positions.max()
+        split_position = int(max_position * split_percentage)
+
+        # Split indices based on window position
+        for idx, window_pos in zip(recovery_indices, recovery_window_positions):
+            if window_pos <= split_position:
+                first_half_indices.append(idx)
+            else:
+                second_half_indices.append(idx)
+
+    # Convert to numpy arrays
+    first_half_indices = np.array(first_half_indices)
+    second_half_indices = np.array(second_half_indices)
+
+    # Initialize results dictionary
+    results = {
+        'split_percentage': split_percentage,
+        'first_half_sample_count': len(first_half_indices),
+        'second_half_sample_count': len(second_half_indices),
+        'first_half_metrics': {},
+        'second_half_metrics': {},
+        'comparison': {}
+    }
+
+    # Calculate metrics for first half
+    if len(first_half_indices) > 0:
+        X_first = X_test[first_half_indices]
+        y_first = y_test[first_half_indices]
+
+        # Get predictions
+        y_pred_proba_first = ml_model.predict_proba(X_first)[:, 1]
+        y_pred_first = np.where(y_pred_proba_first >= f1_threshold, 1, 0)
+
+        # Calculate metrics
+        results['first_half_metrics']['pr_auc'] = round(float(metrics.average_precision_score(y_first, y_pred_proba_first)), 4)
+        results['first_half_metrics']['roc_auc'] = round(float(metrics.roc_auc_score(y_first, y_pred_proba_first)), 4)
+        results['first_half_metrics']['f1_score'] = round(float(metrics.f1_score(y_first, y_pred_first)), 4)
+        results['first_half_metrics']['balanced_accuracy'] = round(float(metrics.balanced_accuracy_score(y_first, y_pred_first)), 4)
+
+        # Class distribution
+        results['first_half_metrics']['class_distribution'] = {
+            'positive_class': int(np.sum(y_first == 1)),
+            'negative_class': int(np.sum(y_first == 0))
+        }
+
+    # Calculate metrics for second half
+    if len(second_half_indices) > 0:
+        X_second = X_test[second_half_indices]
+        y_second = y_test[second_half_indices]
+
+        # Get predictions
+        y_pred_proba_second = ml_model.predict_proba(X_second)[:, 1]
+        y_pred_second = np.where(y_pred_proba_second >= f1_threshold, 1, 0)
+
+        # Calculate metrics
+        results['second_half_metrics']['pr_auc'] = round(float(metrics.average_precision_score(y_second, y_pred_proba_second)), 4)
+        results['second_half_metrics']['roc_auc'] = round(float(metrics.roc_auc_score(y_second, y_pred_proba_second)), 4)
+        results['second_half_metrics']['f1_score'] = round(float(metrics.f1_score(y_second, y_pred_second)), 4)
+        results['second_half_metrics']['balanced_accuracy'] = round(float(metrics.balanced_accuracy_score(y_second, y_pred_second)), 4)
+
+        # Class distribution
+        results['second_half_metrics']['class_distribution'] = {
+            'positive_class': int(np.sum(y_second == 1)),
+            'negative_class': int(np.sum(y_second == 0))
+        }
+
+    # Calculate differences (first - second)
+    if len(first_half_indices) > 0 and len(second_half_indices) > 0:
+        for metric in ['pr_auc', 'roc_auc', 'f1_score', 'balanced_accuracy']:
+            first_val = results['first_half_metrics'][metric]
+            second_val = results['second_half_metrics'][metric]
+            results['comparison'][f'{metric}_difference'] = round(float(first_val - second_val), 4)
+            results['comparison'][f'{metric}_improvement'] = round(float(second_val - first_val), 4)
+
+    # Save results
+    if save_path and save_name:
+        window_position_file_name = save_name.replace('.json', '_recovery_window_position_analysis.json') if save_name else 'recovery_window_position_analysis.json'
+        with open(os.path.join(save_path, window_position_file_name), 'w') as f:
+            json.dump(results, f, indent=4)
+
+    return results
 
 
 def analyze_subcategory_confusion(
@@ -2227,7 +2409,6 @@ def evaluate_classifier(ml_model: BaseEstimator,
     else:
         raise NotImplementedError("We have not yet implemented multiclass classification")
 
-    # Confusion matrix analysis for subcategories (addresses reviewer concern about MPA vs mental stress)
     if test_data[2] is not None:
         # Get predictions at F1 threshold
         y_pred_proba = ml_model.predict_proba(test_data[0])[:, 1]
@@ -2287,6 +2468,71 @@ def get_resampled_data(X_test: Union[np.ndarray, pd.DataFrame],
     return X_bootstrapped, y_bootstrapped
 
 
+def get_resampled_data_subject_level(
+        X_test: Union[np.ndarray, pd.DataFrame],
+        y_test: Union[np.ndarray, pd.Series],
+        participant_idx_dict: Dict[int, np.ndarray],
+        idx_category=None,
+        seed: Optional[int] = 42
+) -> tuple[Union[np.ndarray, pd.DataFrame], Union[np.ndarray, pd.Series]]:
+    """
+    Performs cluster/subject-level bootstrap resampling.
+
+    Instead of resampling individual observations (windows), this function resamples
+    entire participants (clusters) with replacement, then includes all observations
+    from the selected participants. This approach maintains the autocorrelation
+    structure within participants.
+
+    Args:
+        X_test: Feature matrix (n_samples, n_features)
+        y_test: Target labels (n_samples,)
+        participant_idx_dict: Dictionary mapping participant_id -> array of indices
+        idx_category:
+        seed: Random seed for reproducibility
+
+    Returns:
+        tuple: (X_bootstrapped, y_bootstrapped) with cluster-level resampling
+    """
+    rng = np.random.RandomState(seed)
+
+    # Get list of participant IDs
+    participant_ids = list(participant_idx_dict.keys())
+    n_participants = len(participant_ids)
+
+    # Randomly select J participants with replacement (where J = number of participants)
+    selected_participants = rng.choice(participant_ids, size=n_participants, replace=True)
+
+    # Collect all indices from selected participants
+    all_indices = []
+
+    if idx_category is not None:
+        # Convert to set for O(1) lookup
+        category_set = set(idx_category)
+
+    for pid in selected_participants:
+        participant_indices = participant_idx_dict[pid]
+
+        if idx_category is not None:
+            # Filter to only include indices that belong to this subcategory
+            valid_indices = [idx for idx in participant_indices if idx in category_set]
+            all_indices.extend(valid_indices)
+        else:
+            all_indices.extend(participant_indices)
+
+    # Handle both pandas and numpy inputs
+    if isinstance(X_test, pd.DataFrame):
+        X_bootstrapped = X_test.iloc[all_indices]
+    else:
+        X_bootstrapped = X_test[all_indices]
+
+    if isinstance(y_test, pd.Series):
+        y_bootstrapped = y_test.iloc[all_indices]
+    else:
+        y_bootstrapped = y_test[all_indices]
+
+    return X_bootstrapped, y_bootstrapped
+
+
 def get_bootstrapped_brier_score(
         ml_model: BaseEstimator,
         val_data: tuple[np.ndarray, np.ndarray],
@@ -2295,6 +2541,8 @@ def get_bootstrapped_brier_score(
         bootstrap_method: str,
         isotonic_regressor: BaseEstimator= None,
         alpha: float = 5.0,
+        bootstrap_level: str = "window",
+        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]] = None,
 
 ):
 
@@ -2313,9 +2561,22 @@ def get_bootstrapped_brier_score(
         'brier_skill_score': []
     }
 
+    # Validate parameters
+    if bootstrap_level not in ["window", "subject"]:
+        raise ValueError(f"bootstrap_level must be either 'window' or 'subject', got '{bootstrap_level}'")
+
+    if bootstrap_level == "subject" and test_data_participant_idx_dict is None:
+        raise ValueError("test_data_participant_idx_dict is required when bootstrap_level='subject'")
+
     for idx in range(bootstrap_samples):
         X_bootstrap_val, y_bootstrap_val = get_resampled_data(X_val, y_val, seed=idx)
-        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+
+        if bootstrap_level == "window":
+            X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+        else:  # bootstrap_level == "subject"
+            X_bootstrap, y_bootstrap = get_resampled_data_subject_level(
+                X_test, y_test, test_data_participant_idx_dict, seed=idx
+            )
         y_predictions = ml_model.predict_proba(X_bootstrap)[:, 1]
         y_predictions_dummy = np.ones_like(y_predictions)
         if isotonic_regressor is None:
@@ -2429,15 +2690,17 @@ def bootstrap_test_performance(
         bootstrap_subcategories: bool = True,
         leave_one_out: bool = False,
         leave_out_stressor_name: str = "ssst",
-
+        bootstrap_level: str = "window",
+        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]] = None,
+        test_data_participant_idx_dict_left: Optional[Dict[int, np.ndarray]] = None,
 
 ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, dict[str, float]]] | None]:
     """
     Performs bootstrap resampling to estimate model performance metrics and their confidence intervals.
 
-    This function repeatedly samples the test data with replacement to create bootstrap samples,
-    evaluates the model on each sample, and calculates performance metrics along with their
-    95% confidence intervals.
+    This function supports both window-level (standard) and subject-level (cluster) bootstrap resampling.
+    Subject-level bootstrapping maintains the autocorrelation structure within participants by resampling
+    entire participants with replacement, as described in cluster bootstrap methodology for nested data.
 
     Args:
         model: Trained classifier model that implements predict_proba and predict methods
@@ -2450,16 +2713,32 @@ def bootstrap_test_performance(
         bootstrap_subcategories: bool: If we bootstrap also each subcategory
         leave_one_out: bool: If we leave a stressor out
         leave_out_stressor_name: str, name of the left-out-stressor
+        bootstrap_level: str, either "window" (default) or "subject". Controls the bootstrapping unit.
+            - "window": Standard bootstrap resampling at observation level
+            - "subject": Cluster bootstrap resampling at participant level (requires test_data_participant_idx_dict)
+        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]], required when bootstrap_level="subject".
+            Dictionary mapping participant_id -> array of indices in test_data
+        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]], required when bootstrap_level="subject".
+            Dictionary mapping participant_id -> array of indices in test_data without the left out sensor
 
     Returns:
         dict: Dictionary containing performance metrics and their confidence intervals:
             {
+                'bootstrap_level': str,
                 'roc_auc': {'mean': float, 'ci_lower': float, 'ci_upper': float},
                 'pr_auc': {'mean': float, 'ci_lower': float, 'ci_upper': float},
                 'balanced_accuracy': {'mean': float, 'ci_lower': float, 'ci_upper': float}
                 'f1_score': {"mean": float, "ci_lower" float, "ci_upper": float}
             }
     """
+    # Validate bootstrap_level parameter
+    if bootstrap_level not in ["window", "subject"]:
+        raise ValueError(f"bootstrap_level must be either 'window' or 'subject', got '{bootstrap_level}'")
+
+    # Validate that participant dict is provided when using subject-level bootstrapping
+    if bootstrap_level == "subject" and test_data_participant_idx_dict is None:
+        raise ValueError("test_data_participant_idx_dict is required when bootstrap_level='subject'")
+
     X_test, y_test, label_test = test_data
 
     # Initialize results dictionary
@@ -2476,7 +2755,7 @@ def bootstrap_test_performance(
     }
 
     if leave_one_out:
-        # In distributin refers to the performance regarding only known stressors
+        # In distribution refers to the performance regarding only known stressors
         results_in_distribution = {
             'roc_auc': [],
             'pr_auc': [],
@@ -2485,14 +2764,19 @@ def bootstrap_test_performance(
             'accuracy': [],
         }
 
-        # Boolean mask: labels that DO NOT start with "ssst" (case-insensitive)
+        # Boolean mask: labels that DO NOT start with stressor name (case-insensitive)
         mask = ~label_test.str.lower().str.startswith(leave_out_stressor_name)
 
         # Apply the mask to each component
+        # This is to get the baseline values of the table
+        # Then the subcategories is then the one to get the leave-one-stressor-out mental stress performance
         X_test_left = X_test[mask]
         y_test_left = y_test[mask]
         label_test_left = label_test[mask]
 
+        # in case it is left ot we have also the left-out participant test dict
+
+    # The logic is to have leave one out
     if bootstrap_subcategories:
         idx_per_subcategory = get_idx_per_subcategory(y_test, label_test, positive_class=True, include_other_class=True)
 
@@ -2507,8 +2791,13 @@ def bootstrap_test_performance(
             for category in idx_per_subcategory.keys()
         }
 
-    for idx in range(bootstrap_samples):
-        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+    for idx in tqdm(range(bootstrap_samples), desc="Bootstrapping"):
+        if bootstrap_level == "window":
+            X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+        else:  # bootstrap_level == "subject"
+            X_bootstrap, y_bootstrap = get_resampled_data_subject_level(
+                X_test, y_test, test_data_participant_idx_dict, seed=idx
+            )
 
         # Get predictions
         roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
@@ -2521,7 +2810,12 @@ def bootstrap_test_performance(
         results['accuracy'].append(accuracy)
 
         if leave_one_out:
-            X_bootstrap_left, y_bootstrap_left = get_resampled_data(X_test_left, y_test_left, seed=idx)
+            if bootstrap_level == "window":
+                X_bootstrap_left, y_bootstrap_left = get_resampled_data(X_test_left, y_test_left, seed=idx)
+            else:  # bootstrap_level == "subject"
+                X_bootstrap_left, y_bootstrap_left = get_resampled_data_subject_level(
+                    X_test, y_test, test_data_participant_idx_dict_left, seed=idx
+                )
 
             # Get predictions
             roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
@@ -2536,12 +2830,17 @@ def bootstrap_test_performance(
         if bootstrap_subcategories:
             for category, idx_category in idx_per_subcategory.items():
                 # Get the subcategory data
-                X_subcategory = X_test.iloc[idx_category] if isinstance(X_test, pd.DataFrame) else X_test[idx_category]
-                y_subcategory = y_test.iloc[idx_category] if isinstance(y_test, pd.Series) else y_test[idx_category]
+                if bootstrap_level == "window":
+                    X_subcategory = X_test.iloc[idx_category] if isinstance(X_test, pd.DataFrame) else X_test[idx_category]
+                    y_subcategory = y_test.iloc[idx_category] if isinstance(y_test, pd.Series) else y_test[idx_category]
 
-                # Perform bootstrap resampling on the subcategory data
-                X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory, seed=idx)
+                    # Perform bootstrap resampling on the subcategory data
+                    X_bootstrap, y_bootstrap = get_resampled_data(X_subcategory, y_subcategory, seed=idx)
 
+                else:
+                    X_bootstrap, y_bootstrap = get_resampled_data_subject_level(
+                        X_test, y_test, test_data_participant_idx_dict, idx_category=idx_category, seed=idx
+                    )
                 # Get predictions
                 roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
                     model, X_bootstrap, y_bootstrap, f1_score_threshold)
@@ -2554,8 +2853,12 @@ def bootstrap_test_performance(
 
     # Calculate confidence intervals and means
     final_results = get_confidence_interval_mean(results, bootstrap_method)
+    # Add bootstrap_level to results for tracking
+    final_results['bootstrap_level'] = bootstrap_level
+
     if leave_one_out:
         final_results_in_distribution = get_confidence_interval_mean(results_in_distribution, bootstrap_method)
+        final_results_in_distribution['bootstrap_level'] = bootstrap_level
 
     if bootstrap_subcategories:
         final_results_subcategories = {}
@@ -3277,900 +3580,4 @@ def balance_sublabels(data: pd.DataFrame, positive_class: str, upsample: bool = 
 
     return balanced_data
 
-
-def visualize_umap_clusters(
-        x_data: Union[np.ndarray, pd.DataFrame],
-        y_data: Union[np.ndarray, pd.Series],
-        labels: Union[np.ndarray, pd.Series, None] = None,
-        n_neighbors: int = 30,
-        min_dist: float = 0.01,
-        n_components: int = 2,
-        metric: str = 'euclidean',
-        random_state: int = 42,
-        save_path: str = None,
-        title: str = "UMAP Projection of Data",
-        save_name: str = "umap_visualization.png",
-        figsize: tuple = (12, 10),
-        show_plot: bool = True,
-        use_subset: bool = True,
-        subset_size: int = 500,
-        label_points: bool = False,
-        highlight_outliers: bool = True,
-        label_color_map: Optional[dict] = None,
-        colormap_categorical: str = 'tab10',
-        colormap_continuous: str = 'viridis',
-        include_baseline: bool = True,
-        alpha_main: float = 0.7,
-        alpha_baseline: float = 0.2,
-        verbose: bool = True,
-        point_size: int = 40,
-        dpi: int = 300
-) -> Tuple[plt.Figure, plt.Axes, np.ndarray]:
-    """
-    Creates and saves a UMAP visualization of data clusters, optimized for publication quality.
-
-    Args:
-        x_data: Feature data for UMAP projection
-        y_data: Binary class labels (1 for mental stress, 0 for baseline/reference)
-        labels: Detailed labels for subcategories (like 'Pasat', 'TA', etc.)
-        n_neighbors: UMAP hyperparameter for local neighborhood size
-        min_dist: UMAP hyperparameter for minimum distance between embedded points
-        n_components: Number of dimensions for UMAP output (usually 2)
-        metric: Distance metric for UMAP
-        random_state: Random seed for reproducibility
-        save_path: Directory to save the visualization
-        title: Plot title
-        save_name: Filename for the saved figure
-        figsize: Figure dimensions (width, height) in inches
-        show_plot: Whether to display the plot
-        use_subset: If True, uses a subset of data for faster computation
-        subset_size: Maximum number of samples to use if use_subset is True
-        label_points: If True, adds text labels to representative points for each cluster
-        highlight_outliers: If True, adds a light outline to points that may be outliers
-        label_color_map: Dictionary mapping labels to specific colors
-        colormap_categorical: Colormap name for categorical data
-        colormap_continuous: Colormap name for continuous data
-        include_baseline: Whether to include baseline (class 0) samples in visualization
-        alpha_main: Opacity of main data points
-        alpha_baseline: Opacity of baseline data points
-        verbose: Whether to print progress messages
-        point_size: Size of scatter plot points
-        dpi: Resolution for saved figure
-
-    Returns:
-        Tuple of (figure, axes, embedding) where embedding is the UMAP projection
-    """
-    import umap
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import pandas as pd
-    import time
-    import seaborn as sns
-    from matplotlib.patches import Patch
-    from sklearn.preprocessing import StandardScaler
-
-    start_time = time.time()
-
-    if verbose:
-        print("Starting UMAP visualization process...")
-
-    # Convert inputs to numpy arrays if they're pandas objects
-    if isinstance(x_data, pd.DataFrame):
-        x_data_np = x_data.values
-    else:
-        x_data_np = x_data
-
-    if isinstance(y_data, pd.Series):
-        y_data_np = y_data.values
-    else:
-        y_data_np = y_data
-
-    # Handle labels
-    if labels is not None:
-        if isinstance(labels, pd.Series):
-            labels_np = labels.values
-        else:
-            labels_np = labels
-    else:
-        # If no sublabels provided, use binary class labels
-        labels_np = np.array(['Positive' if y == 1 else 'Baseline' for y in y_data_np])
-
-    # Filter data based on include_baseline parameter
-    if not include_baseline:
-        mask = (y_data_np == 1)
-        x_data_np = x_data_np[mask]
-        labels_np = labels_np[mask]
-        y_data_np = y_data_np[mask]
-        if verbose:
-            print(f"Filtered out baseline data, {len(x_data_np)} samples remaining")
-
-    # Use a subset of data for faster computation if requested
-    if use_subset and len(x_data_np) > subset_size:
-        # Ensure we get a representative sample by stratifying on labels
-        unique_labels = np.unique(labels_np)
-        indices = []
-
-        samples_per_label = subset_size // len(unique_labels)
-        for label in unique_labels:
-            label_indices = np.where(labels_np == label)[0]
-            if len(label_indices) > samples_per_label:
-                # Randomly select samples_per_label indices for this label
-                selected = np.random.choice(label_indices, samples_per_label, replace=False)
-            else:
-                # Use all indices for this label
-                selected = label_indices
-            indices.extend(selected)
-
-        # Convert to numpy array and shuffle
-        indices = np.array(indices)
-        np.random.shuffle(indices)
-
-        # Subset the data
-        x_data_subset = x_data_np[indices]
-        y_data_subset = y_data_np[indices]
-        labels_subset = labels_np[indices]
-
-        if verbose:
-            print(f"Using a subset of {len(x_data_subset)} samples for UMAP computation")
-    else:
-        x_data_subset = x_data_np
-        y_data_subset = y_data_np
-        labels_subset = labels_np
-
-    # Standardize the data
-    scaler = StandardScaler()
-    x_data_scaled = scaler.fit_transform(x_data_subset)
-
-    if verbose:
-        print(f"Data prepared, starting UMAP fitting...")
-
-    # Create and fit UMAP
-    reducer = umap.UMAP(
-        n_neighbors=n_neighbors,
-        min_dist=min_dist,
-        n_components=n_components,
-        metric=metric,
-        random_state=random_state,
-        verbose=verbose
-    )
-
-    umap_embedding = reducer.fit_transform(x_data_scaled)
-
-    if verbose:
-        print(f"UMAP fitting completed in {time.time() - start_time:.2f} seconds")
-
-    # Setup default label colors if not provided
-    if label_color_map is None:
-        # Preset colors for common mental stress categories
-        label_color_map = {
-            'Pasat': '#E69F00',
-            'Pasat_repeat': '#56B4E9',
-            'Raven': '#009E73',
-            'SSST_Sing_countdown': '#0072B2',
-            'TA': '#D55E00',
-            'TA_repeat': '#CC79A7',
-            'Baseline': '#999999',  # Gray for baseline
-            'Positive': '#33A02C',  # Green for generic positive class
-            'Negative': '#999999'   # Gray for generic negative class
-        }
-
-    # Create a colorblind-friendly categorical colormap for labels not in the map
-    unique_labels = np.unique(labels_subset)
-    cmap = plt.cm.get_cmap(colormap_categorical, len(unique_labels))
-    for i, label in enumerate(unique_labels):
-        if label not in label_color_map:
-            label_color_map[label] = cmap(i)
-
-    # Create the plot with publication-quality settings
-    plt.rcParams.update({
-        'font.family': 'sans-serif',
-        'font.sans-serif': ['Arial'],
-        'font.size': 12,
-        'xtick.labelsize': 10,
-        'ytick.labelsize': 10,
-        'axes.labelsize': 14,
-        'axes.titlesize': 16,
-        'figure.titlesize': 18
-    })
-
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-
-    # Create a dictionary to store points for each label
-    label_points_dict = {}
-
-    # Plot baseline points first if they should be included but with lower alpha
-    if include_baseline:
-        baseline_mask = (y_data_subset == 0)
-        if np.any(baseline_mask):
-            ax.scatter(
-                umap_embedding[baseline_mask, 0],
-                umap_embedding[baseline_mask, 1],
-                c=label_color_map.get('Baseline', '#999999'),
-                s=point_size * 0.7,  # Slightly smaller points for baseline
-                alpha=alpha_baseline,
-                edgecolors='none',
-                label='Baseline'
-            )
-
-    # Plot points for each unique label (for mental stress class)
-    for label in unique_labels:
-        # Skip baseline labels when plotting the mental stress categories
-        if label == 'Baseline' or label == 'Negative':
-            continue
-
-        mask = (labels_subset == label)
-        points = ax.scatter(
-            umap_embedding[mask, 0],
-            umap_embedding[mask, 1],
-            c=label_color_map.get(label, cmap(list(unique_labels).index(label))),
-            s=point_size,
-            alpha=alpha_main,
-            edgecolors='black' if highlight_outliers else 'none',
-            linewidths=0.5 if highlight_outliers else 0,
-            label=label.replace('_', ' ')
-        )
-
-        # Store points for this label for later labeling
-        label_points_dict[label] = {
-            'x': umap_embedding[mask, 0],
-            'y': umap_embedding[mask, 1]
-        }
-
-    # Label representative points for each cluster if requested
-    if label_points:
-        for label, points in label_points_dict.items():
-            # Find the point closest to the centroid of this cluster
-            if len(points['x']) > 0:
-                centroid_x = np.mean(points['x'])
-                centroid_y = np.mean(points['y'])
-
-                # Find index of point closest to centroid
-                distances = np.sqrt((points['x'] - centroid_x)**2 + (points['y'] - centroid_y)**2)
-                closest_idx = np.argmin(distances)
-
-                # Place text label near this point
-                ax.text(
-                    points['x'][closest_idx],
-                    points['y'][closest_idx],
-                    label.replace('_', ' '),
-                    fontsize=12,
-                    fontweight='bold',
-                    ha='center',
-                    va='center',
-                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.3')
-                )
-
-    # Customize the plot
-    ax.set_title(title, fontweight='bold', pad=20)
-    ax.set_xlabel('UMAP Dimension 1', fontweight='bold')
-    ax.set_ylabel('UMAP Dimension 2', fontweight='bold')
-
-    # Add grid with light alpha
-    ax.grid(True, linestyle='--', alpha=0.3)
-
-    # Customize spines
-    for spine in ax.spines.values():
-        spine.set_linewidth(1.5)
-
-    # Create a clean, visually appealing legend
-    handles, labels = ax.get_legend_handles_labels()
-
-    # If we have many labels, place the legend outside the plot
-    if len(handles) > 5:
-        legend = ax.legend(
-            handles, labels,
-            title='Categories',
-            title_fontsize=12,
-            fontsize=10,
-            loc='center left',
-            bbox_to_anchor=(1.05, 0.5),
-            frameon=True,
-            framealpha=0.9,
-            edgecolor='lightgray'
-        )
-    else:
-        legend = ax.legend(
-            handles, labels,
-            title='Categories',
-            title_fontsize=12,
-            fontsize=10,
-            loc='best',
-            frameon=True,
-            framealpha=0.9,
-            edgecolor='lightgray'
-        )
-
-    # Add a text box with UMAP parameters
-    param_text = (
-        f"UMAP Parameters:\n"
-        f"n_neighbors: {n_neighbors}\n"
-        f"min_dist: {min_dist}\n"
-        f"metric: {metric}"
-    )
-
-    # Place the text box in the upper right corner
-    text_box = ax.text(
-        0.97, 0.97, param_text,
-        transform=ax.transAxes,
-        fontsize=8,
-        verticalalignment='top',
-        horizontalalignment='right',
-        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8, edgecolor='lightgray')
-    )
-
-    # Add a footer with computation info
-    footer_text = f"Computation time: {time.time() - start_time:.2f}s | N = {len(x_data_subset)} samples"
-    fig.text(0.5, 0.01, footer_text, ha='center', fontsize=8, style='italic')
-
-    plt.tight_layout()
-
-    # Save the figure if a path is provided
-    if save_path:
-        full_path = os.path.join(FIGURES_PATH, save_name)
-        print(f"We save here {full_path}")
-        fig.savefig(full_path, dpi=dpi, bbox_inches='tight')
-        if verbose:
-            print(f"Visualization saved to {full_path}")
-
-    # Show the plot if requested
-    if show_plot:
-        plt.show()
-    else:
-        plt.close(fig)
-
-    # Return the figure, axes, and embedding for further use if needed
-    return fig, ax, umap_embedding
-
-def visualize_dimensionality_reduction(
-        x_data: Union[np.ndarray, pd.DataFrame],
-        y_data: Union[np.ndarray, pd.Series],
-        labels: Union[np.ndarray, pd.Series, None] = None,
-        method: str = 'umap',  # Options: 'umap', 'tsne', 'both'
-        # UMAP parameters
-        n_neighbors: int = 30,
-        min_dist: float = 0.01,
-        # t-SNE parameters
-        perplexity: int = 40,
-        learning_rate: int = 200,
-        n_iter: int = 1000,
-        early_exaggeration: float = 12.0,
-        # Common parameters
-        n_components: int = 2,
-        metric: str = 'euclidean',
-        random_state: int = 42,
-        save_path: str = FIGURES_PATH,
-        title: str = "Dimensionality Reduction",
-        save_name: str = "visualization.png",
-        figsize: tuple = (12, 10),
-        show_plot: bool = True,
-        use_subset: bool = True,
-        subset_size: int = 500,
-        label_points: bool = False,
-        highlight_outliers: bool = True,
-        label_color_map: Optional[dict] = None,
-        colormap_categorical: str = 'tab10',
-        colormap_continuous: str = 'viridis',
-        include_baseline: bool = True,
-        merge_repeats: bool = True,
-        alpha_main: float = 0.7,
-        alpha_baseline: float = 0.2,
-        verbose: bool = True,
-        point_size: int = 40,
-        dpi: int = 300
-) -> Union[Tuple[plt.Figure, plt.Axes, np.ndarray],
-           Tuple[plt.Figure, Dict[str, plt.Axes], Dict[str, np.ndarray]]]:
-    """
-    Creates and saves visualizations using UMAP and/or t-SNE dimensionality reduction techniques.
-
-    Args:
-        x_data: Feature data for projection
-        y_data: Binary class labels (1 for mental stress, 0 for baseline/reference)
-        labels: Detailed labels for subcategories (like 'Pasat', 'TA', etc.)
-        method: Dimensionality reduction method: 'umap', 'tsne', or 'both'
-
-        # UMAP specific parameters
-        n_neighbors: UMAP hyperparameter for local neighborhood size
-        min_dist: UMAP hyperparameter for minimum distance between embedded points
-
-        # t-SNE specific parameters
-        perplexity: t-SNE hyperparameter controlling the balance of local/global structure
-        learning_rate: t-SNE hyperparameter for step size in optimization
-        n_iter: Number of iterations for t-SNE optimization
-        early_exaggeration: t-SNE hyperparameter affecting cluster separation
-
-        # Common parameters
-        n_components: Number of dimensions for output (usually 2)
-        metric: Distance metric for the algorithm
-        random_state: Random seed for reproducibility
-        save_path: Directory to save the visualization
-        title: Plot title
-        save_name: Filename for the saved figure
-        figsize: Figure dimensions (width, height) in inches
-        show_plot: Whether to display the plot
-        use_subset: If True, uses a subset of data for faster computation
-        subset_size: Maximum number of samples to use if use_subset is True
-        label_points: If True, adds text labels to representative points for each cluster
-        highlight_outliers: If True, adds a light outline to points that may be outliers
-        label_color_map: Dictionary mapping labels to specific colors
-        colormap_categorical: Colormap name for categorical data
-        colormap_continuous: Colormap name for continuous data
-        include_baseline: Whether to include baseline (class 0) samples in visualization
-        alpha_main: Opacity of main data points
-        alpha_baseline: Opacity of baseline data points
-        verbose: Whether to print progress messages
-        point_size: Size of scatter plot points
-        dpi: Resolution for saved figure
-
-    Returns:
-        If method is 'umap' or 'tsne':
-            Tuple of (figure, axes, embedding)
-        If method is 'both':
-            Tuple of (figure, {'umap': umap_axes, 'tsne': tsne_axes},
-                     {'umap': umap_embedding, 'tsne': tsne_embedding})
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import pandas as pd
-    import time
-    import seaborn as sns
-    from matplotlib.patches import Patch
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.manifold import TSNE
-    import umap
-    import os
-
-    method = method.lower()
-    if method not in ['umap', 'tsne', 'both']:
-        raise ValueError("Method must be one of 'umap', 'tsne', or 'both'")
-
-    start_time = time.time()
-
-    if verbose:
-        print(f"Starting {method.upper()} visualization process...")
-
-    # Convert inputs to numpy arrays if they're pandas objects
-    if isinstance(x_data, pd.DataFrame):
-        x_data_np = x_data.values
-    else:
-        x_data_np = x_data
-
-    if isinstance(y_data, pd.Series):
-        y_data_np = y_data.values
-    else:
-        y_data_np = y_data
-
-    # Handle labels
-    if labels is not None:
-        if isinstance(labels, pd.Series):
-            labels_np = labels.values
-        else:
-            labels_np = labels
-    else:
-        # If no sublabels provided, use binary class labels
-        labels_np = np.array(['Positive' if y == 1 else 'Baseline' for y in y_data_np])
-
-    # Filter data based on include_baseline parameter
-    if merge_repeats:
-        labels_np = np.array([label.split("_")[0] for label in labels_np])
-
-    if not include_baseline:
-        mask = (y_data_np == 1)
-        x_data_np = x_data_np[mask]
-        labels_np = labels_np[mask]
-        y_data_np = y_data_np[mask]
-        if verbose:
-            print(f"Filtered out baseline data, {len(x_data_np)} samples remaining")
-
-    # Use a subset of data for faster computation if requested
-    if use_subset and len(x_data_np) > subset_size:
-        # Ensure we get a representative sample by stratifying on labels
-        unique_labels = np.unique(labels_np)
-        indices = []
-
-        samples_per_label = subset_size // len(unique_labels)
-        for label in unique_labels:
-            label_indices = np.where(labels_np == label)[0]
-            if len(label_indices) > samples_per_label:
-                # Randomly select samples_per_label indices for this label
-                selected = np.random.choice(label_indices, samples_per_label, replace=False)
-            else:
-                # Use all indices for this label
-                selected = label_indices
-            indices.extend(selected)
-
-        # Convert to numpy array and shuffle
-        indices = np.array(indices)
-        np.random.shuffle(indices)
-
-        # Subset the data
-        x_data_subset = x_data_np[indices]
-        y_data_subset = y_data_np[indices]
-        labels_subset = labels_np[indices]
-
-        if verbose:
-            print(f"Using a subset of {len(x_data_subset)} samples for computation")
-    else:
-        x_data_subset = x_data_np
-        y_data_subset = y_data_np
-        labels_subset = labels_np
-
-    # Standardize the data
-    standardize = False
-    if standardize:
-        scaler = StandardScaler()
-        x_data_scaled = scaler.fit_transform(x_data_subset)
-    else:
-        x_data_scaled = x_data_subset
-
-    # Setup default label colors if not provided
-    if label_color_map is None:
-        # Preset colors for common mental stress categories
-        label_color_map = {
-            'Pasat': '#E69F00',
-            'Pasat_repeat': '#56B4E9',
-            'Raven': '#009E73',
-            'SSST_Sing_countdown': '#0072B2',
-            'TA': '#D55E00',
-            'TA_repeat': '#CC79A7',
-            'Baseline': '#999999',  # Gray for baseline
-            'Positive': '#33A02C',  # Green for generic positive class
-            'Negative': '#999999'   # Gray for generic negative class
-        }
-
-    # Create a colorblind-friendly categorical colormap for labels not in the map
-    unique_labels = np.unique(labels_subset)
-    cmap = plt.cm.get_cmap(colormap_categorical, len(unique_labels))
-    for i, label in enumerate(unique_labels):
-        if label not in label_color_map:
-            label_color_map[label] = cmap(i)
-
-    # Create the plot with publication-quality settings
-    plt.rcParams.update({
-        'font.family': 'sans-serif',
-        'font.sans-serif': ['Arial'],
-        'font.size': 12,
-        'xtick.labelsize': 10,
-        'ytick.labelsize': 10,
-        'axes.labelsize': 14,
-        'axes.titlesize': 16,
-        'figure.titlesize': 18
-    })
-
-    # Create figure and axes based on the method
-    if method == 'both':
-        fig, axs = plt.subplots(1, 2, figsize=(figsize[0] * 2, figsize[1]), dpi=dpi)
-        ax_umap, ax_tsne = axs
-        axes_dict = {'umap': ax_umap, 'tsne': ax_tsne}
-        embeddings_dict = {}
-    else:
-        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-
-    # Compute and plot UMAP if requested
-    if method in ['umap', 'both']:
-        if verbose:
-            print(f"Data prepared, starting UMAP fitting...")
-
-        # Create and fit UMAP
-        reducer = umap.UMAP(
-            n_neighbors=n_neighbors,
-            min_dist=min_dist,
-            n_components=n_components,
-            metric=metric,
-            random_state=random_state,
-            verbose=verbose
-        )
-
-        umap_embedding = reducer.fit_transform(x_data_scaled)
-
-        if method == 'both':
-            embeddings_dict['umap'] = umap_embedding
-            current_ax = ax_umap
-            current_ax.set_title(f"UMAP Projection", fontweight='bold', pad=20)
-        else:
-            current_ax = ax
-
-        if verbose:
-            print(f"UMAP fitting completed in {time.time() - start_time:.2f} seconds")
-
-        # Plot the UMAP results
-        create_scatter_plot(
-            embedding=umap_embedding,
-            ax=current_ax,
-            y_data=y_data_subset,
-            labels=labels_subset,
-            label_color_map=label_color_map,
-            include_baseline=include_baseline,
-            alpha_main=alpha_main,
-            alpha_baseline=alpha_baseline,
-            point_size=point_size,
-            highlight_outliers=highlight_outliers,
-            label_points=label_points,
-            unique_labels=unique_labels,
-            cmap=cmap
-        )
-
-        # Add UMAP parameter info
-        if method != 'both':
-            param_text = (
-                f"UMAP Parameters:\n"
-                f"n_neighbors: {n_neighbors}\n"
-                f"min_dist: {min_dist}\n"
-                f"metric: {metric}"
-            )
-            add_parameter_textbox(current_ax, param_text)
-
-    # Compute and plot t-SNE if requested
-    if method in ['tsne', 'both']:
-        if verbose:
-            tsne_start_time = time.time()
-            print(f"Data prepared, starting t-SNE fitting...")
-
-        # Create and fit t-SNE
-        tsne = TSNE(
-            n_components=n_components,
-            perplexity=perplexity,
-            learning_rate=learning_rate,
-            n_iter=n_iter,
-            early_exaggeration=early_exaggeration,
-            metric=metric,
-            random_state=random_state,
-            verbose=1 if verbose else 0
-        )
-
-        tsne_embedding = tsne.fit_transform(x_data_scaled)
-
-        if method == 'both':
-            embeddings_dict['tsne'] = tsne_embedding
-            current_ax = ax_tsne
-            current_ax.set_title(f"t-SNE Projection", fontweight='bold', pad=20)
-        else:
-            current_ax = ax
-
-        if verbose:
-            print(f"t-SNE fitting completed in {time.time() - tsne_start_time:.2f} seconds")
-
-        # Plot the t-SNE results
-        create_scatter_plot(
-            embedding=tsne_embedding,
-            ax=current_ax,
-            y_data=y_data_subset,
-            labels=labels_subset,
-            label_color_map=label_color_map,
-            include_baseline=include_baseline,
-            alpha_main=alpha_main,
-            alpha_baseline=alpha_baseline,
-            point_size=point_size,
-            highlight_outliers=highlight_outliers,
-            label_points=label_points,
-            unique_labels=unique_labels,
-            cmap=cmap
-        )
-
-        # Add t-SNE parameter info
-        if method != 'both':
-            param_text = (
-                f"t-SNE Parameters:\n"
-                f"perplexity: {perplexity}\n"
-                f"learning_rate: {learning_rate}\n"
-                f"n_iter: {n_iter}"
-            )
-            add_parameter_textbox(current_ax, param_text)
-
-    # Set main title
-    if method == 'both':
-        plt.suptitle(title, fontweight='bold', y=0.98, fontsize=18)
-    else:
-        current_ax.set_title(title, fontweight='bold', pad=20)
-
-    # Add a footer with computation info
-    footer_text = f"Computation time: {time.time() - start_time:.2f}s | N = {len(x_data_subset)} samples"
-    fig.text(0.5, 0.01, footer_text, ha='center', fontsize=8, style='italic')
-
-    plt.tight_layout()
-
-    # Save the figure if a path is provided
-    if save_path:
-        method_prefix = method if method != 'both' else 'umap_tsne'
-        full_path = os.path.join(save_path, f"{method_prefix}_{save_name}")
-        fig.savefig(full_path, dpi=dpi, bbox_inches='tight')
-        if verbose:
-            print(f"Visualization saved to {full_path}")
-
-    # Show the plot if requested
-    if show_plot:
-        plt.show()
-    else:
-        plt.close(fig)
-
-    # Return the appropriate results based on method
-    if method == 'both':
-        return fig, axes_dict, embeddings_dict
-    elif method == 'umap':
-        return fig, current_ax, umap_embedding
-    else:  # method == 'tsne'
-        return fig, current_ax, tsne_embedding
-
-def create_scatter_plot(embedding, ax, y_data, labels, label_color_map,
-                        include_baseline, alpha_main, alpha_baseline,
-                        point_size, highlight_outliers, label_points,
-                        unique_labels, cmap):
-    """Helper function to create scatter plots for dimensionality reduction visualizations."""
-    # Create a dictionary to store points for each label
-    label_points_dict = {}
-
-    # Plot baseline points first if they should be included but with lower alpha
-    if include_baseline:
-        baseline_mask = (y_data == 0)
-        if np.any(baseline_mask):
-            ax.scatter(
-                embedding[baseline_mask, 0],
-                embedding[baseline_mask, 1],
-                c=label_color_map.get('Baseline', '#999999'),
-                s=point_size * 0.7,  # Slightly smaller points for baseline
-                alpha=alpha_baseline,
-                edgecolors='none',
-                label='Baseline'
-            )
-
-    # Plot points for each unique label (for mental stress class)
-    for label in unique_labels:
-        # Skip baseline labels when plotting the mental stress categories
-        if label == 'Baseline' or label == 'Negative':
-            continue
-
-        mask = (labels == label)
-        points = ax.scatter(
-            embedding[mask, 0],
-            embedding[mask, 1],
-            c=label_color_map.get(label, cmap(list(unique_labels).index(label))),
-            s=point_size,
-            alpha=alpha_main,
-            edgecolors='black' if highlight_outliers else 'none',
-            linewidths=0.5 if highlight_outliers else 0,
-            label=label.replace('_', ' ')
-        )
-
-        # Store points for this label for later labeling
-        label_points_dict[label] = {
-            'x': embedding[mask, 0],
-            'y': embedding[mask, 1]
-        }
-
-    # Label representative points for each cluster if requested
-    if label_points:
-        for label, points in label_points_dict.items():
-            # Find the point closest to the centroid of this cluster
-            if len(points['x']) > 0:
-                centroid_x = np.mean(points['x'])
-                centroid_y = np.mean(points['y'])
-
-                # Find index of point closest to centroid
-                distances = np.sqrt((points['x'] - centroid_x)**2 + (points['y'] - centroid_y)**2)
-                closest_idx = np.argmin(distances)
-
-                # Place text label near this point
-                ax.text(
-                    points['x'][closest_idx],
-                    points['y'][closest_idx],
-                    label.replace('_', ' '),
-                    fontsize=12,
-                    fontweight='bold',
-                    ha='center',
-                    va='center',
-                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.3')
-                )
-
-    # Customize the plot
-    ax.set_xlabel('Dimension 1', fontweight='bold')
-    ax.set_ylabel('Dimension 2', fontweight='bold')
-
-    # Add grid with light alpha
-    ax.grid(True, linestyle='--', alpha=0.3)
-
-    # Customize spines
-    for spine in ax.spines.values():
-        spine.set_linewidth(1.5)
-
-    # Create a clean, visually appealing legend
-    handles, labels = ax.get_legend_handles_labels()
-
-    # If we have many labels, place the legend outside the plot
-    if len(handles) > 5:
-        legend = ax.legend(
-            handles, labels,
-            title='Categories',
-            title_fontsize=12,
-            fontsize=10,
-            loc='center left',
-            bbox_to_anchor=(1.05, 0.5),
-            frameon=True,
-            framealpha=0.9,
-            edgecolor='lightgray'
-        )
-    else:
-        legend = ax.legend(
-            handles, labels,
-            title='Categories',
-            title_fontsize=12,
-            fontsize=10,
-            loc='best',
-            frameon=True,
-            framealpha=0.9,
-            edgecolor='lightgray'
-        )
-
-def add_parameter_textbox(ax, param_text):
-    """Helper function to add parameter info textbox to the plot."""
-    # Place the text box in the upper right corner
-    ax.text(
-        0.97, 0.97, param_text,
-        transform=ax.transAxes,
-        fontsize=8,
-        verticalalignment='top',
-        horizontalalignment='right',
-        bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8, edgecolor='lightgray')
-    )
-
-# For backward compatibility
-def visualize_umap_clusters(
-        x_data: Union[np.ndarray, pd.DataFrame],
-        y_data: Union[np.ndarray, pd.Series],
-        labels: Union[np.ndarray, pd.Series, None] = None,
-        n_neighbors: int = 30,
-        min_dist: float = 0.01,
-        n_components: int = 2,
-        metric: str = 'euclidean',
-        random_state: int = 42,
-        save_path: str = None,
-        title: str = "UMAP Projection of Data",
-        save_name: str = "umap_visualization.png",
-        figsize: tuple = (12, 10),
-        show_plot: bool = True,
-        use_subset: bool = True,
-        subset_size: int = 500,
-        label_points: bool = False,
-        highlight_outliers: bool = True,
-        label_color_map: Optional[dict] = None,
-        colormap_categorical: str = 'tab10',
-        colormap_continuous: str = 'viridis',
-        include_baseline: bool = True,
-        alpha_main: float = 0.7,
-        alpha_baseline: float = 0.2,
-        verbose: bool = True,
-        point_size: int = 40,
-        dpi: int = 300
-) -> Tuple[plt.Figure, plt.Axes, np.ndarray]:
-    """
-    Legacy function that calls visualize_dimensionality_reduction with UMAP method.
-    Maintained for backward compatibility.
-    """
-    return visualize_dimensionality_reduction(
-        x_data=x_data,
-        y_data=y_data,
-        labels=labels,
-        method='umap',
-        n_neighbors=n_neighbors,
-        min_dist=min_dist,
-        n_components=n_components,
-        metric=metric,
-        random_state=random_state,
-        save_path=save_path,
-        title=title,
-        save_name=save_name,
-        figsize=figsize,
-        show_plot=show_plot,
-        use_subset=use_subset,
-        subset_size=subset_size,
-        label_points=label_points,
-        highlight_outliers=highlight_outliers,
-        label_color_map=label_color_map,
-        colormap_categorical=colormap_categorical,
-        colormap_continuous=colormap_continuous,
-        include_baseline=include_baseline,
-        alpha_main=alpha_main,
-        alpha_baseline=alpha_baseline,
-        verbose=verbose,
-        point_size=point_size,
-        dpi=dpi
-    )
 
