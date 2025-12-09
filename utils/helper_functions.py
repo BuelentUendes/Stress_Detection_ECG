@@ -2612,6 +2612,8 @@ def get_bootstrapped_cohens_kappa(
         test_data: tuple[np.ndarray, np.ndarray],
         bootstrap_samples: int,
         bootstrap_method: str,
+        bootstrap_level: str = "window",
+        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]] = None,
 ):
 
     X_test, y_test, label_test = test_data
@@ -2621,8 +2623,20 @@ def get_bootstrapped_cohens_kappa(
         'cohen kappa': [],
     }
 
+    # Validate parameters
+    if bootstrap_level not in ["window", "subject"]:
+        raise ValueError(f"bootstrap_level must be either 'window' or 'subject', got '{bootstrap_level}'")
+
+    if bootstrap_level == "subject" and test_data_participant_idx_dict is None:
+        raise ValueError("test_data_participant_idx_dict is required when bootstrap_level='subject'")
+
     for idx in range(bootstrap_samples):
-        X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+        if bootstrap_level == "window":
+            X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+        else:  # bootstrap_level == "subject"
+            X_bootstrap, y_bootstrap = get_resampled_data_subject_level(
+                X_test, y_test, test_data_participant_idx_dict, seed=idx
+            )
         # Get predictions
         y_proba_predictions_model_1 = ml_model_1.predict_proba(X_bootstrap)[:, 1]
         y_pred_1 = np.where(y_proba_predictions_model_1 >= threshold_1, 1.0, 0.0)

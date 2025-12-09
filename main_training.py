@@ -744,12 +744,15 @@ def main(args):
                 classification_threshold = json.load(f)["classification_threshold f1"]
             model_dict[model] = (load_best_model(file_path, file_name), classification_threshold)
 
+        # I need to bootstrap the cohens kappa as well
         final_cohen_results = {}
         for (ml_model_1, model_threshold_pair_1), (ml_model_2, model_threshold_pair_2) in itertools.combinations(model_dict.items(), 2):
             bootstrapped_cohen = get_bootstrapped_cohens_kappa(
                 model_threshold_pair_1[0], model_threshold_pair_1[1],
                 model_threshold_pair_2[0], model_threshold_pair_2[1],
-                test_data, args.bootstrap_samples, args.bootstrap_method
+                test_data, args.bootstrap_samples, args.bootstrap_method,
+                bootstrap_level=args.bootstrap_level,
+                test_data_participant_idx_dict=participant_test_index_dict
             )
             final_cohen_results[f"{ml_model_1}_{ml_model_2}"] = bootstrapped_cohen
 
@@ -789,7 +792,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
-                        type=validate_ml_model, default="lr")
+                        type=validate_ml_model, default="xgboost")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default='smote')
@@ -875,6 +878,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.verbose = True
+    args.get_cohens_kappa = True
     # args.exclude_recovery = True
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
