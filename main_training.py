@@ -424,6 +424,7 @@ def main(args):
     create_directory(results_path_history)
     create_directory(results_path_feature_selection)
     create_directory(results_path_bootstrap_performance)
+
     if not args.leave_one_out:
         create_directory(results_path_bootstrap_train_performance)
         create_directory(results_path_bootstrap_val_performance)
@@ -434,7 +435,8 @@ def main(args):
 
     ecg_dataset = ECGDataset(target_data_path, add_participant_id=args.do_within_comparison)
 
-    if args.negative_class in ["baseline", "low_physical_activity"] and args.positive_class not in ["low_physical_activity", "moderate_physical_activity", "high_physical_activity", "any_physical_activity"]:
+    if (args.negative_class in ["baseline", "low_physical_activity"] and args.positive_class not in
+            ["low_physical_activity", "moderate_physical_activity", "high_physical_activity", "any_physical_activity"]):
         reference = "Sitting" if args.negative_class == "baseline" else "Standing"
         # We plot the reference HR reactivity only always against the true negative reference class sitting
         ecg_dataset.get_average_hr_reactivity_box(args.positive_class, args.negative_class, save_path=figures_path_hist,
@@ -487,7 +489,10 @@ def main(args):
         val_data = None
     else:
         # Get the regular datasplit for the normal between people split
-        train_data, val_data, test_data = ecg_dataset.get_data()
+
+        # test data idx has the participant idx in there which then later we will use to retrieve the participant idx
+        # for the subject-wise bootstrapping
+        train_data, val_data, test_data, test_data_idx = ecg_dataset.get_data()
 
     if args.use_feature_subset:
         # We need to use here a function if args.use_top_features
@@ -504,7 +509,7 @@ def main(args):
         val_data = get_subset_feature_df(val_data, feature_subset=args.feature_subset)
         test_data = get_subset_feature_df(test_data, feature_subset=args.feature_subset)
 
-    train_data, val_data, test_data, feature_names = prepare_data(train_data, val_data, test_data,
+    train_data, val_data, test_data, feature_names, participant_test_index_dict, participant_test_index_dict_left = prepare_data(train_data, val_data, test_data, test_data_idx,
                                                                   positive_class=args.positive_class,
                                                                   negative_class=args.negative_class,
                                                                   exclude_recovery=args.exclude_recovery,
@@ -574,6 +579,9 @@ def main(args):
 
         json.dump(classification_threshold, f)
 
+    # Here we need to include the participant_test_idx_dictionary
+    # Then we can bootstrap at the participant level
+
     if args.bootstrap_test_results:
         set_seed(args.seed)
         final_bootstrapped_results = bootstrap_test_performance(
@@ -585,32 +593,40 @@ def main(args):
             args.bootstrap_subcategories,
             args.leave_one_out,
             args.leave_out_stressor_name,
+            args.bootstrap_level,
+            participant_test_index_dict,
+            participant_test_index_dict_left,
         )
 
-        if not args.leave_one_out:
-            set_seed(args.seed)
-            final_bootstrapped_results_train = bootstrap_test_performance(
-                best_model,
-                train_data,
-                args.bootstrap_samples,
-                args.bootstrap_method,
-                evaluation_results["f1_score_threshold"],
-                False,
-                args.leave_one_out,
-                args.leave_out_stressor_name,
-            )
-
-            set_seed(args.seed)
-            final_bootstrapped_results_val = bootstrap_test_performance(
-                best_model,
-                val_data,
-                args.bootstrap_samples,
-                args.bootstrap_method,
-                evaluation_results["f1_score_threshold"],
-                False,
-                args.leave_one_out,
-                args.leave_out_stressor_name,
-            )
+        # Big question: Why is this needed?
+        # if not args.leave_one_out:
+        #     set_seed(args.seed)
+        #     final_bootstrapped_results_train = bootstrap_test_performance(
+        #         best_model,
+        #         train_data,
+        #         args.bootstrap_samples,
+        #         args.bootstrap_method,
+        #         evaluation_results["f1_score_threshold"],
+        #         False,
+        #         args.leave_one_out,
+        #         args.leave_out_stressor_name,
+        #         args.bootstrap_level,
+        #         participant_test_index_dict,
+        #     )
+        #
+        #     set_seed(args.seed)
+        #     final_bootstrapped_results_val = bootstrap_test_performance(
+        #         best_model,
+        #         val_data,
+        #         args.bootstrap_samples,
+        #         args.bootstrap_method,
+        #         evaluation_results["f1_score_threshold"],
+        #         False,
+        #         args.leave_one_out,
+        #         args.leave_out_stressor_name,
+        #         args.bootstrap_level,
+        #         participant_test_index_dict,
+        #     )
 
         if args.verbose:
             print(final_bootstrapped_results[0])
@@ -632,12 +648,12 @@ def main(args):
         with open(os.path.join(results_path_bootstrap_performance, save_name_overall), "w") as f:
             json.dump(final_bootstrapped_results[0], f, indent=4)
 
-        if not args.leave_one_out:
-            with open(os.path.join(results_path_bootstrap_train_performance, save_name_overall), "w") as f:
-                json.dump(final_bootstrapped_results_train[0], f, indent=4)
-
-            with open(os.path.join(results_path_bootstrap_val_performance, save_name_overall), "w") as f:
-                json.dump(final_bootstrapped_results_val[0], f, indent=4)
+        # if not args.leave_one_out:
+        #     with open(os.path.join(results_path_bootstrap_train_performance, save_name_overall), "w") as f:
+        #         json.dump(final_bootstrapped_results_train[0], f, indent=4)
+        #
+        #     with open(os.path.join(results_path_bootstrap_val_performance, save_name_overall), "w") as f:
+        #         json.dump(final_bootstrapped_results_val[0], f, indent=4)
 
         if args.bootstrap_subcategories:
             save_name_subcategories = get_save_name(
@@ -658,7 +674,9 @@ def main(args):
                 json.dump(final_bootstrapped_results[1], f, indent=4)
 
         if args.leave_one_out:
-            with open(os.path.join(results_path_bootstrap_performance, f"{save_name_overall}_in_distribution_known_stressors.json"), "w") as f:
+            # These are the results for the known stressor
+            with open(os.path.join(
+                    results_path_bootstrap_performance, f"{save_name_overall}_in_distribution_known_stressors.json"), "w") as f:
                 json.dump(final_bootstrapped_results[2], f, indent=4)
 
     if args.add_calibration_plots and not args.do_within_comparison and not args.use_default_values:
@@ -675,7 +693,9 @@ def main(args):
 
         # Get bootstrapped ECE results:
         bootstrapped_brier_score_results= get_bootstrapped_brier_score(
-            best_model, val_data, test_data, args.bootstrap_samples, args.bootstrap_method
+            best_model, val_data, test_data, args.bootstrap_samples, args.bootstrap_method,
+            bootstrap_level=args.bootstrap_level,
+            test_data_participant_idx_dict=participant_test_index_dict
         )
 
         # Save brier score results:
@@ -783,7 +803,7 @@ if __name__ == "__main__":
     parser.add_argument("--bootstrap_test_results", action="store_true",
                         help="if set, we use bootstrapping to get uncertainty estimates of the test performance.")
     parser.add_argument("--bootstrap_samples", help="number of bootstrap samples.",
-                        default=200, type=int) # What happens if I do 1000? samples, so far the analysis is with 200
+                        default=2_000, type=int) # Increase to 2_000 to increase statistical significance
     parser.add_argument("--bootstrap_method",
                         help="which bootstrap method to use. Options: 'quantile', 'BCa', 'se'",
                         default="quantile")
@@ -847,24 +867,40 @@ if __name__ == "__main__":
     parser.add_argument("--balance_sublabels_method", choices=("downsample", "upsample", "smote"),
                         help="What method to use for the sublabel balancing.", type=str,
                         default="downsample")
+    parser.add_argument("--bootstrap_level", choices=("window", "subject"),
+                        help="Bootstrap level: 'window' for observation-level (default) or 'subject' "
+                             "for cluster-level bootstrapping. IMPORTANT: Subject level does not account for autocorrelation.",
+                        type=str, default="subject")
 
     args = parser.parse_args()
 
     args.verbose = True
-    args.exclude_recovery = True
+    # args.exclude_recovery = True
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
     args.add_calibration_plots = True
+    # args.leave_one_out = True
+    # args.leave_out_stressor_name = "ssst"
 
-    args.do_hyperparameter_tuning = True
+    # args.do_hyperparameter_tuning = True
     args.get_model_explanations = True if args.model_type != "rf" else False
-    # args.resampling_method = "smote"
 
     # Set seed for reproducibility
     set_seed(args.seed)
 
     main(args)
 
+    # IMPORTANT Notes: Related to the importance of the results
     # To get the reduction of features:
     # Use this command:
     # python3 main_training.py --model_type xgboost --use_feature_selection --min_features 20 --max_features 20 --top_k_features 20 --do_hyperparameter_tuning --n_trials 25 --use_top_features
+
+    # 1,000 bootstrap samples is considered good:
+    # https://pmc.ncbi.nlm.nih.gov/articles/PMC5965657/
+
+    # Here it is well-explained:
+    # However, with nested data, the standard bootstrapping procedure is modified to reflect the sampling design used in a CRT (Fox, 2016). Standard bootstrapping procedures though still require identically distributed responses which is not the case with clustered data (Goldstein, 2011). Cluster bootstrapping, which has been referred to using various names such as the cases bootstrap, the block bootstrap, and the pairs bootstrap (Cameron et al., 2008; Van der Leeden, Meijer, & Busing, 2008), slightly modifies the standard bootstrapping procedure with regard to the resampling process. Instead of drawing a random sample of n observations, the sampling is based on the total number of J clusters. With cluster bootstrapping, the first step is to randomly select J number of clusters with replacement (Davison & Hinkley, 1997). For each cluster selected (with some clusters selected more than once and others not selected at all), all observations within that cluster are included in the bootstrapped sample. Then the desired statistics are computed using the bootstrapped sample and the process is repeated B number of times. Standard errors and confidence intervals can be derived using standard bootstrapping procedures.
+
+    # For the left out comparison and check for  the results
+    # Files smote_lr_bootstrapped.json_in_distribution_known_stressors.json
+    # smote_lr_bootstrapped_subcategories -> held-out stressor important
