@@ -546,15 +546,13 @@ def main(args):
     best_model.fit(train_data[0], train_data[1])
 
     # Evaluate final model
-    # ToDo: test_data has a column called 'category' which indicates baseline, lpa or mpa
-
     evaluation_results = evaluate_classifier(
         best_model, train_data, val_data, test_data,
         save_path=results_path_best_performance,
         save_name=get_save_name(
             study_name,
             add_within_comparison=args.do_within_comparison,
-            use_default_values=args.use_default_values, 
+            use_default_values=args.use_default_values,
             use_feature_selection=args.use_feature_selection,
             use_feature_subset=args.use_feature_subset,
             feature_subset=args.feature_subset,
@@ -564,7 +562,11 @@ def main(args):
             subcategories=False,
             random_subset=args.use_random_subset_features,
         ),
-        verbose=args.verbose)
+        verbose=args.verbose,
+        bootstrap_subcategory_confusion=args.bootstrap_subcategories if args.bootstrap_test_results else False,
+        bootstrap_samples=args.bootstrap_samples,
+        bootstrap_level=args.bootstrap_level,
+        test_data_participant_idx_dict=participant_test_index_dict if not args.do_within_comparison else None)
 
 
     # Save model weights and threshold for classification so I can later retrieve it for cohen's kappa calculation
@@ -581,7 +583,6 @@ def main(args):
 
     # Here we need to include the participant_test_idx_dictionary
     # Then we can bootstrap at the participant level
-
     if args.bootstrap_test_results:
         set_seed(args.seed)
         final_bootstrapped_results = bootstrap_test_performance(
@@ -792,7 +793,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
-                        type=validate_ml_model, default="xgboost")
+                        type=validate_ml_model, default="lr")
     parser.add_argument("--resampling_method", help="what resampling technique should be used. "
                                                  "Options: 'downsample', 'upsample', 'smote', 'adasyn', 'None'",
                         type=validate_resampling_method, default='smote')
@@ -871,14 +872,14 @@ if __name__ == "__main__":
                         help="What method to use for the sublabel balancing.", type=str,
                         default="downsample")
     parser.add_argument("--bootstrap_level", choices=("window", "subject"),
-                        help="Bootstrap level: 'window' for observation-level (default) or 'subject' "
-                             "for cluster-level bootstrapping. IMPORTANT: Subject level does not account for autocorrelation.",
+                        help="Bootstrap level: 'window' for observation-level or 'subject' (default) "
+                             "for cluster-level bootstrapping. IMPORTANT: Window level does not account for autocorrelation.",
                         type=str, default="subject")
 
     args = parser.parse_args()
 
     args.verbose = True
-    args.get_cohens_kappa = True
+    # args.get_cohens_kappa = True
     # args.exclude_recovery = True
     args.bootstrap_test_results = True
     args.bootstrap_subcategories = True
@@ -908,6 +909,3 @@ if __name__ == "__main__":
     # For the left out comparison and check for  the results
     # Files smote_lr_bootstrapped.json_in_distribution_known_stressors.json
     # smote_lr_bootstrapped_subcategories -> held-out stressor important
-
-    #ToDo: Check the confusion matrix:
-    # Baseline alone (without recovery) and baselines (that include recovyer)

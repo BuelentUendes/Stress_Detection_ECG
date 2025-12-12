@@ -20,6 +20,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, QuantileTransformer
 from sklearn import metrics
+from sklearn.metrics import confusion_matrix
 from sklearn.metrics import cohen_kappa_score
 from sklearn.svm import SVC
 from sklearn.base import BaseEstimator, clone
@@ -828,12 +829,7 @@ def encode_data(
         leave_one_out: bool,
         leave_out_stressor_name: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    #ToDo: if exclude recovery is set, then we need to remove the recovery condition
-    # Remove all recov_[1-6], and also also recov_standing
-    # There is a sitting condition in there
-    # Also standing and sitting (these are good)
-    # First drop data that is not either in the positive class or negative class
-    # How can make all labels lower case and rename ssst
+
     data["label"] = data["label"].str.lower()
     data["label"] = data["label"].str.replace('ssst_sing_countdown', 'ssst', regex=False)
 
@@ -1972,7 +1968,6 @@ def analyze_subcategory_confusion(
         - Sensitivity (Recall), Specificity, Precision, F1-score
         - Sample counts
     """
-    from sklearn.metrics import confusion_matrix
 
     # Mapping from subcategory labels to coarse-grained categories
     ACTIVITY_CATEGORIES = {
@@ -2073,7 +2068,7 @@ def analyze_subcategory_confusion(
         # Sensitivity (Recall) - ability to identify mental stress
         sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
 
-        # Specificity - ability to correctly identify non-stress (crucial for MPA distinction)
+        # Specificity - ability to correctly identify non-stress (crucial for negative classes)
         specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
 
         # Precision - when model predicts stress, how often is it correct
@@ -2187,6 +2182,344 @@ def analyze_subcategory_confusion(
             json.dump(confusion_analysis, f, indent=4)
 
     return confusion_analysis
+
+
+def get_bootstrapped_subcategory_confusion(
+        ml_model: BaseEstimator,
+        test_data: tuple[np.ndarray, np.ndarray, pd.Series],
+        f1_score_threshold: float,
+        bootstrap_samples: int,
+        bootstrap_level: str = "window",
+        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]] = None,
+        alpha: float = 5.0,
+) -> dict:
+    """
+    Performs bootstrap resampling to estimate subcategory confusion metrics with confidence intervals.
+
+    This function supports both window-level (standard) and subject-level (cluster) bootstrap resampling
+    for analyzing classification performance per subcategory.
+
+    Args:
+        ml_model: Trained classifier model that implements predict_proba
+        test_data: tuple of (X_test, y_test, categories_test) containing:
+            - X_test: array-like of shape (n_samples, n_features)
+            - y_test: array-like of shape (n_samples,) with true labels
+            - categories_test: pd.Series with original category labels
+        f1_score_threshold: float, threshold to determine the positive class
+        bootstrap_samples: int, number of bootstrap iterations
+        bootstrap_level: str, either "window" (default) or "subject". Controls the bootstrapping unit.
+            - "window": Standard bootstrap resampling at observation level
+            - "subject": Cluster bootstrap resampling at participant level (requires test_data_participant_idx_dict)
+        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]], required when bootstrap_level="subject".
+            Dictionary mapping participant_id -> array of indices in test_data
+        alpha: float, significance level for confidence intervals (default: 5.0 for 95% CI)
+
+    Returns:
+        dict: Dictionary containing metrics for each category and coarse-grained category with:
+            - mean values
+            - ci_lower: lower bound of confidence interval
+            - ci_upper: upper bound of confidence interval
+    """
+    # Validate parameters
+    if bootstrap_level not in ["window", "subject"]:
+        raise ValueError(f"bootstrap_level must be either 'window' or 'subject', got '{bootstrap_level}'")
+
+    if bootstrap_level == "subject" and test_data_participant_idx_dict is None:
+        raise ValueError("test_data_participant_idx_dict is required when bootstrap_level='subject'")
+
+    X_test, y_test, categories_test = test_data
+
+    # Mapping from subcategory labels to coarse-grained categories
+    ACTIVITY_CATEGORIES = {
+        # Mental Stress (MS)
+        'ta': 'MS',
+        'ssst': 'MS',
+        'pasat': 'MS',
+        'raven': 'MS',
+        'ta_repeat': 'MS',
+        'pasat_repeat': 'MS',
+
+        # Baseline (BL) - Sitting and Recovery periods
+        'baseline': 'BL',
+        'sitting': 'BL',
+        'recov1': 'BL',
+        'recov2': 'BL',
+        'recov3': 'BL',
+        'recov4': 'BL',
+        'recov5': 'BL',
+        'recov6': 'BL',
+        'recov_standing': 'BL',
+
+        # Light Physical Activity (LPA)
+        'low_physical_activity': 'LPA',
+        'standing': 'LPA',
+
+        # Moderate Physical Activity (MPA)
+        'moderate_physical_activity': 'MPA',
+        'walking_own_pace': 'MPA',
+        'dishes': 'MPA',
+        'vacuum': 'MPA',
+    }
+
+    # Get unique categories
+    unique_categories = categories_test.unique()
+
+    # Initialize storage for bootstrap results
+    bootstrap_results = {}
+    coarse_grained_bootstrap_results = {
+        'MS': {},
+        'BL': {},
+        'BL_True': {},
+        'BL_Recovery': {},
+        'LPA': {},
+        'MPA': {}
+    }
+
+    # Initialize lists for each metric for each category
+    for category in unique_categories:
+        bootstrap_results[category] = {
+            'sample_count': [],
+            'true_positives': [],
+            'false_positives': [],
+            'true_negatives': [],
+            'false_negatives': [],
+            'accuracy': [],
+            'sensitivity_recall': [],
+            'specificity': [],
+            'precision': [],
+            'f1_score': [],
+            'false_positive_rate': [],
+        }
+
+    for coarse_cat in coarse_grained_bootstrap_results.keys():
+        coarse_grained_bootstrap_results[coarse_cat] = {
+            'sample_count': [],
+            'true_positives': [],
+            'false_positives': [],
+            'true_negatives': [],
+            'false_negatives': [],
+            'accuracy': [],
+            'sensitivity_recall': [],
+            'specificity': [],
+            'precision': [],
+            'f1_score': [],
+            'false_positive_rate': [],
+        }
+
+    # Bootstrap iterations
+    for idx in tqdm(range(bootstrap_samples), desc="Bootstrapping subcategory confusion"):
+        # Resample data
+        if bootstrap_level == "window":
+            X_bootstrap, y_bootstrap = get_resampled_data(X_test, y_test, seed=idx)
+            # Also need to resample categories
+            if isinstance(categories_test, pd.Series):
+                categories_bootstrap = categories_test.iloc[
+                    np.random.RandomState(idx).choice(len(categories_test), size=len(categories_test), replace=True)
+                ]
+            else:
+                indices = np.random.RandomState(idx).choice(len(categories_test), size=len(categories_test), replace=True)
+                categories_bootstrap = categories_test[indices]
+        else:  # bootstrap_level == "subject"
+            # For subject-level, we need to resample while maintaining category alignment
+            rng = np.random.RandomState(idx)
+            participant_ids = list(test_data_participant_idx_dict.keys())
+            n_participants = len(participant_ids)
+            selected_participants = rng.choice(participant_ids, size=n_participants, replace=True)
+
+            all_indices = []
+            for pid in selected_participants:
+                all_indices.extend(test_data_participant_idx_dict[pid])
+
+            if isinstance(X_test, pd.DataFrame):
+                X_bootstrap = X_test.iloc[all_indices]
+            else:
+                X_bootstrap = X_test[all_indices]
+
+            if isinstance(y_test, pd.Series):
+                y_bootstrap = y_test.iloc[all_indices]
+            else:
+                y_bootstrap = y_test[all_indices]
+
+            if isinstance(categories_test, pd.Series):
+                categories_bootstrap = categories_test.iloc[all_indices]
+            else:
+                categories_bootstrap = categories_test[all_indices]
+
+        # Get predictions
+        y_pred_proba = ml_model.predict_proba(X_bootstrap)[:, 1]
+        y_pred = np.where(y_pred_proba >= f1_score_threshold, 1, 0)
+
+        # Convert to numpy for easier indexing
+        if isinstance(y_bootstrap, pd.Series):
+            y_bootstrap_np = y_bootstrap.values
+        else:
+            y_bootstrap_np = y_bootstrap
+
+        if isinstance(categories_bootstrap, pd.Series):
+            categories_bootstrap_np = categories_bootstrap.values
+        else:
+            categories_bootstrap_np = categories_bootstrap
+
+        # Initialize coarse-grained category data for this iteration
+        coarse_grained_data = {
+            'MS': {'y_true': [], 'y_pred': []},
+            'BL': {'y_true': [], 'y_pred': []},
+            'BL_True': {'y_true': [], 'y_pred': []},
+            'BL_Recovery': {'y_true': [], 'y_pred': []},
+            'LPA': {'y_true': [], 'y_pred': []},
+            'MPA': {'y_true': [], 'y_pred': []}
+        }
+
+        # Analyze each subcategory in this bootstrap sample
+        for category in unique_categories:
+            # Get indices for this category
+            category_mask = (categories_bootstrap_np == category)
+
+            if not np.any(category_mask):
+                continue
+
+            # Get predictions and true labels for this category
+            y_true_cat = y_bootstrap_np[category_mask]
+            y_pred_cat = y_pred[category_mask]
+
+            # Aggregate into coarse-grained categories
+            coarse_cat = ACTIVITY_CATEGORIES.get(category.lower(), None)
+            if coarse_cat:
+                coarse_grained_data[coarse_cat]['y_true'].extend(y_true_cat.tolist())
+                coarse_grained_data[coarse_cat]['y_pred'].extend(y_pred_cat.tolist())
+
+                # Also aggregate into BL_True or BL_Recovery for baseline categories
+                if coarse_cat == 'BL':
+                    if category.lower() in ['baseline', 'sitting']:
+                        coarse_grained_data['BL_True']['y_true'].extend(y_true_cat.tolist())
+                        coarse_grained_data['BL_True']['y_pred'].extend(y_pred_cat.tolist())
+                    else:  # Recovery conditions
+                        coarse_grained_data['BL_Recovery']['y_true'].extend(y_true_cat.tolist())
+                        coarse_grained_data['BL_Recovery']['y_pred'].extend(y_pred_cat.tolist())
+
+            # Calculate confusion matrix
+            if len(np.unique(y_true_cat)) > 1:
+                tn, fp, fn, tp = confusion_matrix(y_true_cat, y_pred_cat, labels=[0, 1]).ravel()
+            elif np.unique(y_true_cat)[0] == 0:
+                tn = np.sum((y_pred_cat == 0))
+                fp = np.sum((y_pred_cat == 1))
+                fn = 0
+                tp = 0
+            else:
+                tn = 0
+                fp = 0
+                fn = np.sum((y_pred_cat == 0))
+                tp = np.sum((y_pred_cat == 1))
+
+            # Calculate metrics
+            total = len(y_true_cat)
+            accuracy = (tp + tn) / total if total > 0 else 0
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            f1 = 2 * (precision * sensitivity) / (precision + sensitivity) if (precision + sensitivity) > 0 else 0
+
+            # Store results
+            bootstrap_results[category]['sample_count'].append(int(total))
+            bootstrap_results[category]['true_positives'].append(int(tp))
+            bootstrap_results[category]['false_positives'].append(int(fp))
+            bootstrap_results[category]['true_negatives'].append(int(tn))
+            bootstrap_results[category]['false_negatives'].append(int(fn))
+            bootstrap_results[category]['accuracy'].append(float(accuracy))
+            bootstrap_results[category]['sensitivity_recall'].append(float(sensitivity))
+            bootstrap_results[category]['specificity'].append(float(specificity))
+            bootstrap_results[category]['precision'].append(float(precision))
+            bootstrap_results[category]['f1_score'].append(float(f1))
+            bootstrap_results[category]['false_positive_rate'].append(1 - float(specificity))
+
+        # Calculate coarse-grained metrics for this bootstrap sample
+        for coarse_cat, data in coarse_grained_data.items():
+            if len(data['y_true']) == 0:
+                continue
+
+            y_true_coarse = np.array(data['y_true'])
+            y_pred_coarse = np.array(data['y_pred'])
+
+            # Calculate confusion matrix
+            if len(np.unique(y_true_coarse)) > 1:
+                tn, fp, fn, tp = confusion_matrix(y_true_coarse, y_pred_coarse, labels=[0, 1]).ravel()
+            elif np.unique(y_true_coarse)[0] == 0:
+                tn = np.sum((y_pred_coarse == 0))
+                fp = np.sum((y_pred_coarse == 1))
+                fn = 0
+                tp = 0
+            else:
+                tn = 0
+                fp = 0
+                fn = np.sum((y_pred_coarse == 0))
+                tp = np.sum((y_pred_coarse == 1))
+
+            # Calculate metrics
+            total = len(y_true_coarse)
+            accuracy = (tp + tn) / total if total > 0 else 0
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            f1 = 2 * (precision * sensitivity) / (precision + sensitivity) if (precision + sensitivity) > 0 else 0
+
+            # Store results
+            coarse_grained_bootstrap_results[coarse_cat]['sample_count'].append(int(total))
+            coarse_grained_bootstrap_results[coarse_cat]['true_positives'].append(int(tp))
+            coarse_grained_bootstrap_results[coarse_cat]['false_positives'].append(int(fp))
+            coarse_grained_bootstrap_results[coarse_cat]['true_negatives'].append(int(tn))
+            coarse_grained_bootstrap_results[coarse_cat]['false_negatives'].append(int(fn))
+            coarse_grained_bootstrap_results[coarse_cat]['accuracy'].append(float(accuracy))
+            coarse_grained_bootstrap_results[coarse_cat]['sensitivity_recall'].append(float(sensitivity))
+            coarse_grained_bootstrap_results[coarse_cat]['specificity'].append(float(specificity))
+            coarse_grained_bootstrap_results[coarse_cat]['precision'].append(float(precision))
+            coarse_grained_bootstrap_results[coarse_cat]['f1_score'].append(float(f1))
+            coarse_grained_bootstrap_results[coarse_cat]['false_positive_rate'].append(1 - float(specificity))
+
+    # Calculate confidence intervals for each category
+    final_results = {}
+    for category, metrics in bootstrap_results.items():
+        final_results[category] = {}
+        for metric_name, metric_values in metrics.items():
+            if len(metric_values) > 0:
+                mean_val = np.mean(metric_values)
+                ci_lower = np.percentile(metric_values, alpha / 2)
+                ci_upper = np.percentile(metric_values, 100 - alpha / 2)
+
+                final_results[category][metric_name] = {
+                    'mean': round(float(mean_val), 4),
+                    'ci_lower': round(float(ci_lower), 4),
+                    'ci_upper': round(float(ci_upper), 4)
+                }
+
+    # Calculate confidence intervals for coarse-grained categories
+    coarse_grained_final_results = {}
+    for coarse_cat, metrics in coarse_grained_bootstrap_results.items():
+        if not metrics.get('sample_count'):
+            continue
+
+        coarse_grained_final_results[coarse_cat] = {}
+        for metric_name, metric_values in metrics.items():
+            if len(metric_values) > 0:
+                mean_val = np.mean(metric_values)
+                ci_lower = np.percentile(metric_values, alpha / 2)
+                ci_upper = np.percentile(metric_values, 100 - alpha / 2)
+
+                coarse_grained_final_results[coarse_cat][metric_name] = {
+                    'mean': round(float(mean_val), 4),
+                    'ci_lower': round(float(ci_lower), 4),
+                    'ci_upper': round(float(ci_upper), 4)
+                }
+
+    # Construct final summary
+    summary = {
+        'bootstrap_level': bootstrap_level,
+        'bootstrap_samples': bootstrap_samples,
+        'note': 'Specificity is key for distinguishing mental stress from physical activity (especially MPA)',
+        'subcategory_metrics': final_results,
+        'coarse_grained_categories': coarse_grained_final_results
+    }
+
+    return summary
 
 
 def plot_confusion_matrix_subcategories(
@@ -2309,7 +2642,12 @@ def evaluate_classifier(ml_model: BaseEstimator,
                         test_data: Optional[tuple[np.ndarray, np.ndarray]] = None,
                         save_path: str = None,
                         save_name: str = None,
-                        verbose: bool = True) -> dict[str, float]:
+                        verbose: bool = True,
+                        bootstrap_subcategory_confusion: bool = True,
+                        bootstrap_samples: int = 2000,
+                        bootstrap_level: str = "subject",
+                        test_data_participant_idx_dict: Optional[Dict[int, np.ndarray]] = None,
+                        alpha: float = 5.0) -> dict[str, float]:
     """
     Evaluates the trained machine learning model and gets the performance metrics
     :param ml_model: scikit-learn model
@@ -2439,6 +2777,27 @@ def evaluate_classifier(ml_model: BaseEstimator,
 
         # Add subcategory-specific metrics to results
         results['subcategory_confusion_matrix'] = subcategory_confusion
+
+        # Bootstrap subcategory confusion if requested
+        if bootstrap_subcategory_confusion:
+            bootstrapped_subcategory_confusion = get_bootstrapped_subcategory_confusion(
+                ml_model=ml_model,
+                test_data=(test_data[0], test_data[1], original_categories),
+                f1_score_threshold=best_val_threshold_f1_score,
+                bootstrap_samples=bootstrap_samples,
+                bootstrap_level=bootstrap_level,
+                test_data_participant_idx_dict=test_data_participant_idx_dict,
+                alpha=alpha
+            )
+
+            # Save bootstrapped results
+            if save_path and save_name:
+                bootstrap_file_name = save_name.replace('.json', '_subcategory_confusion_bootstrapped.json') if save_name else 'subcategory_confusion_bootstrapped.json'
+                with open(os.path.join(save_path, bootstrap_file_name), 'w') as f:
+                    json.dump(bootstrapped_subcategory_confusion, f, indent=4)
+
+            # Add to results
+            results['subcategory_confusion_matrix_bootstrapped'] = bootstrapped_subcategory_confusion
 
     if verbose:
         print(results)
