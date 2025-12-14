@@ -475,7 +475,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         'ytick.labelsize': 12,
         'legend.fontsize': 12,
         'legend.edgecolor': 'black',
-        'figure.dpi': 500,
+        'figure.dpi': 500, # JMIR requirements (original value was set to 500)
     })
 
     symbol_dict = {
@@ -502,12 +502,22 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
     all_models = list(set([model for freq_results in bootstrapped_results.values()
                            for model in freq_results.keys()]))
 
+    # Define model order: LR, XGBoost, RF (and their variants)
+    model_order = ['lr', 'xgboost', 'rf']
+
     if not (window_size_comparison or baseline_comparison):
-        all_models = sorted(all_models)
+        # Sort by custom order
+        all_models = sorted(all_models, key=lambda x: (
+            model_order.index(x) if x in model_order else 999,
+            x
+        ))
 
     if window_size_comparison:
         # Sort so lr (30s) and (60s) comes first then xgboost
-        all_models = sorted(all_models, key=lambda x: (x.split('_')[0], int(x.split('_')[1])))
+        all_models = sorted(all_models, key=lambda x: (
+            model_order.index(x.split('_')[0]) if x.split('_')[0] in model_order else 999,
+            int(x.split('_')[1])
+        ))
 
     if baseline_comparison:
         label_order = ["base_lpa_mpa", "baseline"]
@@ -515,8 +525,8 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         all_models = sorted(
             all_models,
             key=lambda name: (
-                name.split("_", 1)[0],  # e.g. "lr"
-                label_order.index(name.split("_", 1)[1])  # 0 for "baseline", 1 for "base_lpa_mpa"
+                model_order.index(name.split("_", 1)[0]) if name.split("_", 1)[0] in model_order else 999,
+                label_order.index(name.split("_", 1)[1])  # 0 for "base_lpa_mpa", 1 for "baseline"
             )
         )
 
@@ -574,9 +584,9 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
 
         # Calculate x positions for this model (centered around the frequency position)
         if len(all_models) <= 3:
-            x_pos = x + (idx - len(all_models) / 2 + 0.75) * width
+            x_pos = x + (idx - len(all_models) / 2 - 0.5) * width
         else:
-            x_pos = x + (idx - len(all_models) / 2 + 0.75) * width * 1.75
+            x_pos = x + (idx - len(all_models) / 2 - 0.5) * width * 1.75
 
         # Plot confidence intervals and means
         valid_idx = ~np.isnan(means)
@@ -648,13 +658,13 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
 
                     # Get x positions of the two models at this frequency
                     if len(all_models) <= 3:
-                        lr_x = x[freq_idx] + (all_models.index(lr_model) + 1 - len(all_models) / 2 + 0.75) * width
-                        xgb_x = x[freq_idx] + (all_models.index(xgb_model) + 1 - len(all_models) / 2 + 0.75) * width
+                        lr_x = x[freq_idx] + (all_models.index(lr_model) + 1 - len(all_models) / 2 - 0.5) * width
+                        xgb_x = x[freq_idx] + (all_models.index(xgb_model) + 1 - len(all_models) / 2 - 0.5) * width
                     else:
                         lr_x = x[freq_idx] + (
-                                    all_models.index(lr_model) + 1 - len(all_models) / 2 + 0.75) * width * 1.75
+                                    all_models.index(lr_model) + 1 - len(all_models) / 2 - 0.5) * width * 1.75
                         xgb_x = x[freq_idx] + (
-                                    all_models.index(xgb_model) + 1 - len(all_models) / 2 + 0.75) * width * 1.75
+                                    all_models.index(xgb_model) + 1 - len(all_models) / 2 - 0.5) * width * 1.75
 
                     # Draw horizontal line connecting the two models
                     plt.plot([lr_x, xgb_x], [y_pos, y_pos], 'k-', linewidth=0.5)
@@ -786,7 +796,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         save_path = os.path.join(figures_path_root,
                                  f'{comparison}_bootstrap_comparison_{metric}_multi_freq_{str(window_size)}_window{significance_suffix}.png')
 
-    plt.savefig(save_path, bbox_inches='tight', dpi=500)
+    plt.savefig(save_path, bbox_inches='tight', dpi=500) # JMIR requirements, original value was set to 500
     plt.close()
 
 
@@ -807,10 +817,6 @@ def main(args):
     statistical_results = load_statistical_results(
         RESULTS_PATH, args.sample_frequency, args.window_size, comparison, "xgboost,lr"
     )
-
-    #ToDo:
-    # Actually I could rewrite this, as I have args.resampling_method
-    # Simple resampled_bool = True if args.resampling_method == "smote" would probably do it
 
     resampled_bool = (args.negative_class in [
         "low_physical_activity",
@@ -1004,7 +1010,7 @@ if __name__ == "__main__":
                         default="base_lpa_mpa",
                         type=validate_category)
     parser.add_argument("--sample_frequency", help="which sample frequency to use for the training",
-                        default=1000, type=int)
+                        default=1_000, type=int)
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default="10full",
@@ -1026,7 +1032,7 @@ if __name__ == "__main__":
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
              "'knn', 'lr', 'xgboost', 'qda', 'svm', 'random_baseline', 'gmm', 'simple_baseline'",
         type=validate_models,
-        default="lr,xgboost"
+        default="lr,rf,xgboost"
     )
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
@@ -1036,6 +1042,7 @@ if __name__ == "__main__":
     parser.add_argument("--resampling_method", default="smote", choices=("smote", "none"))
 
     args = parser.parse_args()
-    args.add_significance = True
+    # args.do_window_comparison = True
+    # args.do_baseline_comparison = True
     main(args)
 
