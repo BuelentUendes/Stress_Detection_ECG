@@ -599,36 +599,6 @@ def main(args):
             participant_test_index_dict_left,
         )
 
-        # Big question: Why is this needed?
-        # if not args.leave_one_out:
-        #     set_seed(args.seed)
-        #     final_bootstrapped_results_train = bootstrap_test_performance(
-        #         best_model,
-        #         train_data,
-        #         args.bootstrap_samples,
-        #         args.bootstrap_method,
-        #         evaluation_results["f1_score_threshold"],
-        #         False,
-        #         args.leave_one_out,
-        #         args.leave_out_stressor_name,
-        #         args.bootstrap_level,
-        #         participant_test_index_dict,
-        #     )
-        #
-        #     set_seed(args.seed)
-        #     final_bootstrapped_results_val = bootstrap_test_performance(
-        #         best_model,
-        #         val_data,
-        #         args.bootstrap_samples,
-        #         args.bootstrap_method,
-        #         evaluation_results["f1_score_threshold"],
-        #         False,
-        #         args.leave_one_out,
-        #         args.leave_out_stressor_name,
-        #         args.bootstrap_level,
-        #         participant_test_index_dict,
-        #     )
-
         if args.verbose:
             print(final_bootstrapped_results[0])
 
@@ -649,13 +619,6 @@ def main(args):
         with open(os.path.join(results_path_bootstrap_performance, save_name_overall), "w") as f:
             json.dump(final_bootstrapped_results[0], f, indent=4)
 
-        # if not args.leave_one_out:
-        #     with open(os.path.join(results_path_bootstrap_train_performance, save_name_overall), "w") as f:
-        #         json.dump(final_bootstrapped_results_train[0], f, indent=4)
-        #
-        #     with open(os.path.join(results_path_bootstrap_val_performance, save_name_overall), "w") as f:
-        #         json.dump(final_bootstrapped_results_val[0], f, indent=4)
-
         if args.bootstrap_subcategories:
             save_name_subcategories = get_save_name(
                 study_name,
@@ -675,7 +638,7 @@ def main(args):
                 json.dump(final_bootstrapped_results[1], f, indent=4)
 
         if args.leave_one_out:
-            # These are the results for the known stressor
+            # These are the results for the known stressor and then one needs to check the subcategories for the remaining left-out stressor
             with open(os.path.join(
                     results_path_bootstrap_performance, f"{save_name_overall}_in_distribution_known_stressors.json"), "w") as f:
                 json.dump(final_bootstrapped_results[2], f, indent=4)
@@ -789,7 +752,7 @@ if __name__ == "__main__":
     parser.add_argument("--window_size", type=int, default=30,
                         help="The window size that we use for detecting stress")
     parser.add_argument('--window_shift', type=str, default='10full',
-                        help="The window shift that we use for detecting stress")
+                        help="The window shift that we use for detecting stress") #30full and 20full are the ones important
     parser.add_argument("--model_type", help="which model to use"
                                              "Choose from: 'dt', 'rf', 'adaboost', 'lda', "
                                              "'knn', 'lr', 'xgboost', 'qda', 'svm', random_baseline', 'gmm'",
@@ -878,11 +841,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    args.verbose = True
+    # args.verbose = True
     # args.get_cohens_kappa = True
     # args.exclude_recovery = True
     args.bootstrap_test_results = True
-    args.bootstrap_subcategories = True
+    args.bootstrap_subcategories = True # needs to be disabled when window size 60
     args.add_calibration_plots = True
     # args.leave_one_out = True
     # args.leave_out_stressor_name = "ssst"
