@@ -6,6 +6,7 @@ import json
 import yaml
 
 import torch
+from imblearn.metrics import sensitivity_score
 from torchmetrics.functional.classification import binary_calibration_error
 from optuna import Trial
 import numpy as np
@@ -1389,7 +1390,6 @@ def prepare_data(train_data: pd.DataFrame,
         If test_data is None:
             Tuple of ((X_train, y_train, label_train), (X_val, y_val, label_val), feature_names)
     """
-    # Old code
 
     try:
         overall_label_distribution = train_data['category'].value_counts().to_dict()
@@ -1401,6 +1401,20 @@ def prepare_data(train_data: pd.DataFrame,
             overall_label_distribution[key] += value
 
         print(f" The overall label distribution is {overall_label_distribution}")
+
+        # Here we do the same for the ocndition
+        # (mental stress then in particular so we can see exactly how many per mental stress)
+        overall_condition_distribution = train_data["label"].value_counts().to_dict()
+
+        for key, value in val_data['label'].value_counts().to_dict().items():
+            overall_condition_distribution[key] += value
+
+        for key, value in test_data['label'].value_counts().to_dict().items():
+            overall_condition_distribution[key] += value
+
+        print(f" The overall condition distribution is {overall_condition_distribution}")
+
+
     except TypeError:
         overall_label_distribution = 0
 
@@ -3026,21 +3040,30 @@ def get_bootstrapped_cohens_kappa(
 def get_performance_metric_bootstrapped(model, X_bootstrap, y_bootstrap, f1_threshold):
     # Get predictions
     y_pred_proba = model.predict_proba(X_bootstrap)[:, 1]
-    y_pred = model.predict(X_bootstrap)
+    # This is maybe not fully correct, as this is not the maximizing f1 score threshold
+    #y_pred = model.predict(X_bootstrap)
+    y_pred = (y_pred_proba >= f1_threshold).astype(int)
 
     # Calculate metrics
     roc_auc = metrics.roc_auc_score(y_bootstrap, y_pred_proba)
     pr_auc = metrics.average_precision_score(y_bootstrap, y_pred_proba)
     balanced_accuracy = metrics.balanced_accuracy_score(y_bootstrap, y_pred)
+
     f1_score = evaluate_ml_model_score(
         model, (X_bootstrap, y_bootstrap), threshold=f1_threshold, score="f1",
 )
     accuracy = metrics.accuracy_score(y_bootstrap, y_pred)
 
     precision_score = metrics.precision_score(y_bootstrap, y_pred)
-    recall_score = metrics.recall_score(y_bootstrap, y_pred)
+    # Sensitivity score is also recall
+    recall_score = metrics.recall_score(y_bootstrap, y_pred) # sensitivity score
 
-    return roc_auc, pr_auc, balanced_accuracy, f1_score, accuracy
+    # Add specificity
+    tn, fp, fn, tp = metrics.confusion_matrix(y_bootstrap, y_pred).ravel()
+    specificity_score = tn / (tn + fp)  # TN / (TN + FP)
+    sensitivity_score = tp / (tp + fn)
+
+    return roc_auc, pr_auc, balanced_accuracy, f1_score, accuracy, sensitivity_score, specificity_score
 
 
 def get_confidence_interval_mean(results: dict, bootstrap_method: str, alpha=5.0) -> dict:
@@ -3136,6 +3159,8 @@ def bootstrap_test_performance(
         'balanced_accuracy': [],
         'f1_score': [],
         'accuracy': [],
+        'sensitivity': [],
+        'specificity': [],
     }
 
     if leave_one_out:
@@ -3146,6 +3171,8 @@ def bootstrap_test_performance(
             'balanced_accuracy': [],
             'f1_score': [],
             'accuracy': [],
+            'sensitivity': [],
+            'specificity': [],
         }
 
         # Boolean mask: labels that DO NOT start with stressor name (case-insensitive)
@@ -3171,6 +3198,8 @@ def bootstrap_test_performance(
                 'balanced_accuracy': [],
                 'f1_score': [],
                 'accuracy': [],
+                'sensitivity': [],
+                'specificity': [],
             }
             for category in idx_per_subcategory.keys()
         }
@@ -3182,9 +3211,10 @@ def bootstrap_test_performance(
             X_bootstrap, y_bootstrap = get_resampled_data_subject_level(
                 X_test, y_test, test_data_participant_idx_dict, seed=idx
             )
-
+        # Get a check here
         # Get predictions
-        roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
+        #ToDo: Change here the metric to also report sensitivity and specificity
+        roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy, sensitivity_score, specificity_score = get_performance_metric_bootstrapped(
             model, X_bootstrap, y_bootstrap, f1_score_threshold)
 
         results['roc_auc'].append(roc_auc)
@@ -3192,6 +3222,9 @@ def bootstrap_test_performance(
         results['balanced_accuracy'].append(balanced_accuracy_score)
         results['f1_score'].append(f1_score)
         results['accuracy'].append(accuracy)
+        results['sensitivity'].append(sensitivity_score)
+        results['specificity'].append(specificity_score)
+
 
         if leave_one_out:
             if bootstrap_level == "window":
@@ -3202,7 +3235,7 @@ def bootstrap_test_performance(
                 )
 
             # Get predictions
-            roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
+            roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy, sensitivity_score, specificity_score = get_performance_metric_bootstrapped(
                 model, X_bootstrap_left, y_bootstrap_left, f1_score_threshold)
 
             results_in_distribution['roc_auc'].append(roc_auc)
@@ -3210,6 +3243,8 @@ def bootstrap_test_performance(
             results_in_distribution['balanced_accuracy'].append(balanced_accuracy_score)
             results_in_distribution['f1_score'].append(f1_score)
             results_in_distribution['accuracy'].append(accuracy)
+            results_in_distribution['sensitivity'].append(sensitivity_score)
+            results_in_distribution['specificity'].append(specificity_score)
 
         if bootstrap_subcategories:
             for category, idx_category in idx_per_subcategory.items():
@@ -3226,7 +3261,7 @@ def bootstrap_test_performance(
                         X_test, y_test, test_data_participant_idx_dict, idx_category=idx_category, seed=idx
                     )
                 # Get predictions
-                roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy = get_performance_metric_bootstrapped(
+                roc_auc, pr_auc, balanced_accuracy_score, f1_score, accuracy, sensitivity_score, specificity_score = get_performance_metric_bootstrapped(
                     model, X_bootstrap, y_bootstrap, f1_score_threshold)
 
                 subcategory_results[category]['roc_auc'].append(roc_auc)
@@ -3234,6 +3269,8 @@ def bootstrap_test_performance(
                 subcategory_results[category]['balanced_accuracy'].append(balanced_accuracy_score)
                 subcategory_results[category]['f1_score'].append(f1_score)
                 subcategory_results[category]['accuracy'].append(accuracy)
+                subcategory_results[category]['sensitivity'].append(sensitivity_score)
+                subcategory_results[category]['specificity'].append(specificity_score)
 
     # Calculate confidence intervals and means
     final_results = get_confidence_interval_mean(results, bootstrap_method)

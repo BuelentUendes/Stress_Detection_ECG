@@ -475,7 +475,7 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         'ytick.labelsize': 12,
         'legend.fontsize': 12,
         'legend.edgecolor': 'black',
-        'figure.dpi': 500, # JMIR requirements (original value was set to 500)
+        'figure.dpi': 500, # JMIR requirements (150) (original value was set to 500)
     })
 
     symbol_dict = {
@@ -947,7 +947,7 @@ def main(args):
     }
 
     # Plot bootstrap comparisons for each metric
-    metrics = ['roc_auc', 'pr_auc', 'balanced_accuracy', 'f1_score']
+    metrics = ['roc_auc', 'pr_auc', 'balanced_accuracy', 'f1_score', 'sensitivity', 'specificity']
     for metric in metrics:
         plot_bootstrap_comparison(
             bootstrapped_results,
@@ -1032,7 +1032,7 @@ if __name__ == "__main__":
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
              "'knn', 'lr', 'xgboost', 'qda', 'svm', 'random_baseline', 'gmm', 'simple_baseline'",
         type=validate_models,
-        default="lr,rf,xgboost"
+        default="lr,xgboost"
     )
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
