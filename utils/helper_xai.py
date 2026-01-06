@@ -220,7 +220,7 @@ def create_shap_summary_plot_simple(
             'legend.fontsize': 12,
             'legend.frameon': False,
             'legend.edgecolor': 'black',
-            'figure.dpi': 500,
+            'figure.dpi': 150,
         })
 
         # Use summary_plot with cleaned feature names
@@ -244,7 +244,7 @@ def create_shap_summary_plot_simple(
             save_name += ".png"
             plt.savefig(
                 os.path.join(figures_path, save_name),
-                dpi=500,
+                dpi=500, # JMIR requirements (original value was set to 500)
                 bbox_inches='tight'
             )
 
@@ -294,8 +294,9 @@ def create_feature_name_dict():
         "entropy_power_hf_band": "Entropy of power in HF band",
         "nk_pnn20": "PNN20",
         "nk_mean_nn": "AVNN",
-        "ials": "IALS"
-
+        "ials": "IALS",
+        "min_power_vhf_band": "Minimum power in VHF band",
+        "nk_iqr_nn": "Interquartile range NN intervals",
     }
     return feature_dict
 
