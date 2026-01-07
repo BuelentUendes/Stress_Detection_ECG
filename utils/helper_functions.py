@@ -1613,7 +1613,7 @@ def prepare_data(train_data: pd.DataFrame,
     if resampling_method in ["downsample", "upsample"]:
         do_downsampling = resampling_method == "downsample"
         train_data = resample_data(train_data, positive_class, negative_class, downsample=do_downsampling)
-        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class,
+        x_train, label_train, y_train = encode_data(train_data, positive_class, negative_class, exclude_recovery,
                                                   leave_one_out, leave_out_stressor_name)
 
     elif resampling_method == "smote":
