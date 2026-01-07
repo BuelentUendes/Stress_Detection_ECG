@@ -741,7 +741,9 @@ def plot_bootstrap_comparison(bootstrapped_results: dict,
         'pr_auc': 'AUPRC',
         'precision': 'Precision',
         'balanced_accuracy': 'Balanced Accuracy',
-        'f1_score': "F1-Score"
+        'f1_score': "F1-Score",
+        'sensitivity': "Sensitivity",
+        "specificity": "Specificity",
     }
     plt.ylabel(metric_labels.get(metric, metric))
 
@@ -1032,7 +1034,7 @@ if __name__ == "__main__":
         help="Comma-separated list of models to analyze. Choose from: 'dt', 'rf', 'adaboost', 'lda', "
              "'knn', 'lr', 'xgboost', 'qda', 'svm', 'random_baseline', 'gmm', 'simple_baseline'",
         type=validate_models,
-        default="lr,xgboost"
+        default="lr,xgboost,rf"
     )
     parser.add_argument("--bin_size", help="what bin size to use for plotting the calibration plots",
                         default=10, type=int)
