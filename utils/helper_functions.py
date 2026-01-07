@@ -952,6 +952,7 @@ def encode_data(
         data.loc[:, 'category'] = data['category'].apply(lambda x: 1 if x == positive_class else 0)  # Encode classes
 
     if leave_one_out:
+        #IMPORTANT: This code does not check when ta_repeat is selected but only if ta
         if any(data.label.str.lower().str.startswith(leave_out_stressor_name)):
             data = data[~data.label.str.lower().str.startswith(leave_out_stressor_name)]
             assert not any(

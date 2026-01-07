@@ -826,8 +826,10 @@ if __name__ == "__main__":
                              "If set, we will save the feature plots. This will take longer though!")
     parser.add_argument("--leave_one_out", action="store_true",
                         help="We will train and validate without a stressor")
-    parser.add_argument("--leave_out_stressor_name", help="Which stressor to leave out",
-                        choices=("ta", "pasat", "raven", "ssst","none", "ta_repeat", "pasat_repeat"),
+    parser.add_argument("--leave_out_stressor_name",
+                        help="Which stressor to leave out. "
+                             "IMPORTANT: for TA and PASAT the repeat condition is automatically also filtered out",
+                        choices=("ta", "pasat", "raven", "ssst", "none"),
                         default=None, type=str)
     parser.add_argument("--balance_positive_sublabels", action="store_true",
                         help="If we want to have equal proportions in the training set of positive label.")
