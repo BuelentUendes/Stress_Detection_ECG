@@ -16,6 +16,8 @@ The repository is structured as follows.
 - src/ contains the main source code for the project.
 - sandbox/ contains archived and experimental scrips (not needed for the results of the project).
 
+The main files to reproduce the results obtained in our paper are the *.py files.
+
 **Important:** The data folder is currently empty, as our dataset is not publicly available and is only available upon request.
 
 ### Stress-in-Action (SiA)-Kit
@@ -35,8 +37,44 @@ pip3 install -r requirements.txt
 ```
 
 ### Workflow
+Once having access to the dataset, obtaining the main results would require running the following scripts:
 
-**To be added**
+1. Optional: Downsample the ECG signal
+```bash
+python3 downsample.py
+```
+
+2. Preprocess the ECG signal
+
+```bash
+python3 preprocessing.py
+```
+
+3. Feature extraction
+
+```bash
+python3 feature_extraction.py
+```
+
+4. Training the ML model
+
+```bash
+python3 main_training.py
+```
+
+5. Plotting results
+
+```bash
+python3 main_figures.py
+```
+
+6. Optional: Statistical Analysis
+
+```bash
+python3 run_statistical_analysis.py
+```
+
+Each script uses command line arguments to adjust hyperparameters. 
 
 ### Acknowledgements
 This work is funded by [Stress in Action](https://stress-in-action.nl/). 
