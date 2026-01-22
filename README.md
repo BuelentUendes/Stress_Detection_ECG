@@ -8,7 +8,15 @@ Using a dataset consisting of 127 participants who performed various experimenta
 - **test robustness to lower sampling rates and fewer features**, exploring their suitability for lightweight wearables.
 
 ### Repository structure
-**To be added**
+The repository is structured as follows.
+
+- bash_scripts/ contains bash scripts.
+- data/ contains the source code as well as the datasets used in this study.
+- utils/ contains helper functions for the project.
+- src/ contains the main source code for the project.
+- sandbox/ contains archived and experimental scrips (not needed for the results of the project).
+
+**Important:** The data folder is currently empty, as our dataset is not publicly available and is only available upon request.
 
 ### Stress-in-Action (SiA)-Kit
 The SiA-Kit is a package that provides human-readable and extendable pipelines to repeat the experiments described in the project. The builder pattern that is used throughout the pipelines, makes it easier to understand what is happening behind the scenes. 
@@ -25,6 +33,10 @@ Install the requirements:
 ```bash
 pip3 install -r requirements.txt 
 ```
+
+### Workflow
+
+**To be added**
 
 ### Acknowledgements
 This work is funded by [Stress in Action](https://stress-in-action.nl/). 
