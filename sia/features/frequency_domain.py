@@ -1,7 +1,9 @@
+
+# Delete this code again:
 import warnings
 from warnings import warn
 
-import pandas as pd 
+import pandas as pd
 
 from neurokit2.misc import NeuroKitWarning
 from neurokit2.signal import signal_psd
@@ -12,6 +14,7 @@ from antropy.utils import _xlogx
 from scipy.integrate import simpson, trapezoid
 import numpy as np
 from enum import Enum
+
 
 class Feature(str, Enum):
     MEAN = 'mean'
@@ -31,6 +34,7 @@ class Feature(str, Enum):
     ENTROPY = 'entropy'
     """The entropy of the feature."""
 
+
 def frequency_domain(
         ulf: tuple[int, int] = (0, 0.0033),
         vlf: tuple[int, int] = (0.0033, 0.04),
@@ -39,7 +43,7 @@ def frequency_domain(
         vhf: tuple[int, int] = (0.4, 0.5),
         uhf: tuple[int, int] = (0.5, 1),
         sampling_rate: int = 1000
-    ):
+):
     """Compute frequency domain features from R-peaks.
 
     Parameters
@@ -56,40 +60,48 @@ def frequency_domain(
         Upper and lower limit of the high frequency band. By default (0.15, 0.4).
     vhf : tuple, optional
         Upper and lower limit of the very-high frequency band. By default (0.4, 0.5).
-    uhf : tuple, optional   
+    uhf : tuple, optional
         Upper and lower limit of the ultra-high frequency band. By default (0.5, 1).
     sampling_rate : int, optional
         Sampling rate (Hz) of the continuous cardiac signal in which the peaks occur. By default 1000.
-    
+
     Returns
     -------
     function
         A function that takes in rpeaks and returns a dictionary of frequency domain features.
     """
+
     def inner(rpeaks: list[int]):
         warnings.filterwarnings("ignore")
-        result = hrv_frequency(rpeaks, sampling_rate, hf=hf, vhf=vhf, uhf=uhf)
+        frequency_features = hrv_frequency(rpeaks, sampling_rate, hf=hf, vhf=vhf, uhf=uhf)
+        # The Total power in the UHF is the only kinda reliable measure we have for 10s
+        result = {}
+        result.update({
+            f'total_band_power_uhf_band': frequency_features.get("total_band_power_uhf_band", np.nan),  # 0
+        })
         warnings.filterwarnings("default")
         return result
+
     return inner
 
-## 
+
+##
 # Neurokit Modification
-## 
+##
 def hrv_frequency(
-    peaks,
-    sampling_rate=1000,
-    # ulf=(0, 0.0033),
-    # vlf=(0.0033, 0.04),
-    # lf=(0.04, 0.15),
-    hf=(0.15, 0.4),
-    vhf=(0.4, 0.5),
-    uhf=(0.5, 1),
-    psd_method="welch",
-    normalize=True,
-    order_criteria=None,
-    interpolation_rate=100,
-    **kwargs
+        peaks,
+        sampling_rate=1000,
+        # ulf=(0, 0.0033),
+        # vlf=(0.0033, 0.04),
+        # lf=(0.04, 0.15),
+        hf=(0.15, 0.4),
+        vhf=(0.4, 0.5),
+        uhf=(0.5, 1),
+        psd_method="welch",
+        normalize=True,
+        order_criteria=None,
+        interpolation_rate=100,
+        **kwargs
 ):
     """**Computes frequency-domain indices of Heart Rate Variability (HRV)**
 
@@ -262,13 +274,14 @@ def hrv_frequency(
 
     return power
 
+
 def signal_power(
-    signal,
-    frequency_band,
-    sampling_rate=1000,
-    continuous=False,
-    normalize=True,
-    **kwargs,
+        signal,
+        frequency_band,
+        sampling_rate=1000,
+        continuous=False,
+        normalize=True,
+        **kwargs,
 ):
     """**Compute the power of a signal in a given frequency band**
 
@@ -361,13 +374,14 @@ def signal_power(
 
     return out
 
+
 def _signal_power_instant(
-    signal,
-    frequency_band,
-    sampling_rate=1000,
-    normalize=True,
-    order_criteria="KIC",
-    **kwargs,
+        signal,
+        frequency_band,
+        sampling_rate=1000,
+        normalize=True,
+        order_criteria="KIC",
+        **kwargs,
 ):
     # Sanitize frequency band
     if isinstance(frequency_band[0], (int, float)):
@@ -391,9 +405,9 @@ def _signal_power_instant(
     psd = psd[(psd["Frequency"] >= min_freq) & (psd["Frequency"] <= max_freq)]
 
     total_power_all_bands = (
-        _signal_power_instant_compute(psd, band=(frequency_band[0][0], frequency_band[0][1])) +
-        _signal_power_instant_compute(psd, band=(frequency_band[1][0], frequency_band[1][1])) +
-        _signal_power_instant_compute(psd, band=(frequency_band[2][0], frequency_band[2][1]))
+            _signal_power_instant_compute(psd, band=(frequency_band[0][0], frequency_band[0][1])) +
+            _signal_power_instant_compute(psd, band=(frequency_band[1][0], frequency_band[1][1])) +
+            _signal_power_instant_compute(psd, band=(frequency_band[2][0], frequency_band[2][1]))
     )
 
     for band in frequency_band:
@@ -423,6 +437,7 @@ def _signal_power_instant(
 
     return out
 
+
 def _return_band_classification(band):
     """Returns the label associated with the frequency band."""
     if band[0] == 0.00:
@@ -440,6 +455,7 @@ def _return_band_classification(band):
     else:
         return "Unknown band"
 
+
 def _signal_min_instant_compute(psd, band):
     """Calculates the minimum power in a given frequency band."""
     if band[1] < 1.0:
@@ -450,6 +466,7 @@ def _signal_min_instant_compute(psd, band):
 
     min = np.min(psd["Power"][where])
     return np.nan if min == 0.0 else min
+
 
 def _signal_max_instant_compute(psd, band):
     """Calculates the maximum power in a given frequency band."""
@@ -462,6 +479,7 @@ def _signal_max_instant_compute(psd, band):
     max = np.max(psd["Power"][where])
     return np.nan if max == 0.0 else max
 
+
 def _signal_mean_instant_compute(psd, band):
     """Calculates the mean power in a given frequency band."""
     if band[1] < 1.0:
@@ -472,6 +490,7 @@ def _signal_mean_instant_compute(psd, band):
 
     mean = np.mean(psd["Power"][where])
     return np.nan if mean == 0.0 else mean
+
 
 def _signal_median_instant_compute(psd, band):
     """Calculates the median power in a given frequency band."""
@@ -484,6 +503,7 @@ def _signal_median_instant_compute(psd, band):
     median = np.median(psd["Power"][where])
     return np.nan if median == 0.0 else median
 
+
 def _signal_std_instant_compute(psd, band):
     """Calculates the standard deviation of power in a given frequency band."""
     if band[1] < 1.0:
@@ -495,9 +515,10 @@ def _signal_std_instant_compute(psd, band):
     std = np.std(psd["Power"][where])
     return np.nan if std == 0.0 else std
 
+
 def _signal_power_instant_compute(psd, band, method="simpson"):
     """Calculates the total power in a given frequency band."""
-    #I should do an equal sign here for upper band!
+    # I should do an equal sign here for upper band!
     if band[1] < 1.0:
         where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] < band[1])
     else:
@@ -505,7 +526,7 @@ def _signal_power_instant_compute(psd, band, method="simpson"):
         where = (psd["Frequency"] >= band[0]) & (psd["Frequency"] <= band[1])
 
     # Simpson is better and more precise
-    #https: // raphaelvallat.com / bandpower.html
+    # https: // raphaelvallat.com / bandpower.html
 
     psd_band = psd["Power"][where].to_numpy()
     freq_band = psd["Frequency"][where].to_numpy()
@@ -521,6 +542,7 @@ def _signal_power_instant_compute(psd, band, method="simpson"):
         power = np.trapz(y=psd["Power"][where], x=psd["Frequency"][where])
     return np.nan if power == 0.0 else power
 
+
 def _signal_covariance_instant_compute(psd, band):
     """Calculates the covariance of power in a given frequency band."""
     if band[1] < 1.0:
@@ -532,6 +554,7 @@ def _signal_covariance_instant_compute(psd, band):
     covariance = np.cov(psd["Power"][where])
     return np.nan if covariance == 0.0 else covariance
 
+
 def _signal_energy_instant_compute(psd, band):
     """Calculates the energy of power in a given frequency"""
     if band[1] < 1.0:
@@ -542,6 +565,7 @@ def _signal_energy_instant_compute(psd, band):
 
     energy = np.sum(psd["Power"][where])
     return np.nan if energy == 0.0 else energy
+
 
 def _signal_entropy_instant_compute(psd, band):
     """Calculates the entropy of power in a given frequency"""
