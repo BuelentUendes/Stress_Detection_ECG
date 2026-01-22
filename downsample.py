@@ -154,6 +154,7 @@ if __name__ == "__main__":
              "Interpolation seemed to have worked well and results in the precise downsample result."
              "However FFT is the most accurate (if sample is periodic)."
              "For instance, if I do 128, it rounds to 125 (as it is a factor of 2)."
+             "Interpolate is exact to 64"
     )
 
     parser.add_argument(

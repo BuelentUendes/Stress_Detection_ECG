@@ -70,8 +70,6 @@ def main(args):
         .extract(morphology_domain([MorphologyFeature.TWA], sampling_rate=args.sample_frequency)) \
         .to(write_csv(os.path.join(output_path, '[0-9]{5}.csv'), use_parquet=False))
 
-    if args.add_static_data:
-        add_static_data(FEATURE_DATA_PATH, output_path, args.participant_number)
 
 # Important: In our study, we do not consider the static data!
 def add_static_data(FEATURE_DATA_PATH, output_path, participant_number=30100):
