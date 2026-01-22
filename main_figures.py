@@ -27,7 +27,6 @@ COLORS_DICT = {
     "xgboost_baseline": '#56B4E9',
     "lr_base_lpa_mpa": "#E69F00",
     "xgboost_base_lpa_mpa": "#56B4E9",
-    # 'rf': '#009E73',  # Green
     'rf': "#A3D5E0",
     'yellow': '#F0E442',
     'blue': '#0072B2',  # Blue
