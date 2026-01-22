@@ -3,9 +3,9 @@
 
 ## About The Project
 Using a dataset consisting of 127 participants who performed various experimental conditions, this project aims to: 
-- evaluate ML models' ability to distinguish mental-stress episodes from a composite "no-stress" background, including rest and low- to moderate-intensity activities
-- assess their generalizability to new stressors and participants
-- test robustness to lower sampling rates and fewer features, exploring their suitability for lightweight wearables.
+- **evaluate ML models' ability to distinguish mental-stress episodes from a composite "no-stress" background**, including rest and low- to moderate-intensity activities
+- **assess** their **generalizability** to new stressors and participants
+- **test robustness to lower sampling rates and fewer features**, exploring their suitability for lightweight wearables.
 
 ### Repository structure
 **To be added**
