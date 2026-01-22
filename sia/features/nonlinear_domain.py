@@ -1,6 +1,5 @@
 import warnings
 
-import pandas as pd
 import neurokit2 as nk
 
 from neurokit2.complexity import (
@@ -117,7 +116,6 @@ def nonlinear_domain(features: tuple[Feature], sampling_rate: int = 1000):
                 })
             elif feature == Feature.RQA:
                 rqa = nk.hrv_rqa(rpeaks, sampling_rate=sampling_rate)
-                # rqa = rqa.fillna(0)
                 result.update({
                     f"w": rqa['W'].item(),
                     f"wmax": rqa['WMax'].item(),
