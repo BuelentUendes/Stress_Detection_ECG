@@ -7,7 +7,6 @@ from sia.preprocessors import neurokit
 import argparse
 
 from sia.encoders import GroupEncoder
-from sklearn.preprocessing import LabelEncoder
 
 from utils.helper_path import RAW_DATA_PATH, CLEANED_DATA_PATH
 from utils.helper_functions import create_directory
@@ -71,7 +70,7 @@ if __name__ == "__main__":
                         help="Which sample frequency to use. Original is 1,000 Hz."
                              "Note: We can have other sample frequencies, "
                              "but then one needs to use the downsample script first",
-                        default=62.5)
+                        default=1000)
     parser.add_argument("--method", type=str, help="which method to choose for preprocessing"
                                                    "Choices: 'neurokit', 'engzeemod2012', 'elgendi2010', "
                                                    "'hamilton2002', 'pantompkins1985'",
