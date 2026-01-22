@@ -76,6 +76,10 @@ python3 run_statistical_analysis.py
 
 Each script uses command line arguments to adjust hyperparameters. 
 
+### Citation
+If you found this work useful in your research, please consider citing:
+**TBA**
+
 ### Acknowledgements
 This work is funded by [Stress in Action](https://stress-in-action.nl/). 
 The research project [Stress in Action](https://stress-in-action.nl/) is financially supported by the Dutch Research Council and the Dutch Ministry of Education, Culture and Science (NWO gravitation grant number 024.005.010).
