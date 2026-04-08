@@ -78,7 +78,13 @@ Each script uses command line arguments to adjust hyperparameters.
 
 ### Citation
 If you found this work useful in your research, please consider citing:
-**TBA**
+```bibtex
+Uendes B, Antonides A, van de Ven S, van der Mee D, de Geus E, Hoogendoorn M
+Electrocardiogram-Based Mental Stress Detection Amid Everyday Activities Using Machine Learning: Model Development and Validation Study
+J Med Internet Res 2026;28:e80450
+URL: https://www.jmir.org/2026/1/e80450
+DOI: 10.2196/80450
+```
 
 ### Acknowledgements
 This work is funded by [Stress in Action](https://stress-in-action.nl/). 
